@@ -17,6 +17,9 @@ try:
 except ImportError:
     raise Exception('Error: OpenCv is not installed')
 
+from .async import asyncio, show_chip
+
+
 # XXX The `device_corners` device AruCo marker locations in the normalized
 # video frame were determined empirically.
 delta = 2 * 45
@@ -155,14 +158,17 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
                 chip_detected.label = {'uuid': text, 'scale': scale,
                                        'thickness': 1, 'text_size': text_size}
                 signals.signal('chip-detected')\
-                    .send(None,
+                    .send('chip_video_process',
                           decoded_objects=chip_detected.decoded_objects)
-                logging.info('chip detected: %s',
-                             chip_detected.decoded_objects)
+                logging.info('chip detected: `%s`',
+                             chip_detected.decoded_objects[0].data)
 
-        corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000))
+        detect_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
+        corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame,
+                                                                  detect_dict)
         cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-        corners_by_id_i = dict(zip(ids[:, 0], corners)) if ids is not None else {}
+        corners_by_id_i = (dict(zip(ids[:, 0], corners)) if ids is not None
+                           else {})
 
         updated = False
         for i in range(2):
@@ -175,14 +181,17 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
         if updated and all(i in corners_by_id_i for i in range(2)):
             not_detected_count = 0
             mean_corners = pd.concat((pd.DataFrame(np.array(corners_by_id[i])
-                                                   .mean(axis=0)[0], columns=['x', 'y'],
-                                                   index=['top-left', 'top-right',
-                                                          'bottom-right', 'bottom-left'])
+                                                   .mean(axis=0)[0],
+                                                   columns=['x', 'y'],
+                                                   index=['top-left',
+                                                          'top-right',
+                                                          'bottom-right',
+                                                          'bottom-left'])
                                       for i in range(2)), keys=range(2))
             M = cv2.getPerspectiveTransform(mean_corners.loc[corner_indices]
                                             .values,
-                                            (device_corners.loc[corner_indices] *
-                                             frame.shape[:2][::-1]).values)
+                                            (device_corners.loc[corner_indices]
+                                             * frame.shape[:2][::-1]).values)
         elif chip_detected.is_set():
             M = None
             not_detected_count += 1
@@ -192,7 +201,7 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
             # AruCo markers have not been detected for the previous 10 frames;
             # assume chip has been removed.
             chip_detected.clear()
-            signals.signal('chip-removed').send(None)
+            signals.signal('chip-removed').send('chip_video_process')
 
         if M is not None:
             warped =  cv2.warpPerspective(frame, M, frame.shape[:2][::-1])
@@ -211,8 +220,8 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
             chip_uuid = chip_detected.label['uuid']
         else:
             chip_uuid = None
-        signals.signal('frame-ready').send(None, frame=display_frame,
-                                           transform=M,
+        signals.signal('frame-ready').send('chip_video_process',
+                                           frame=display_frame, transform=M,
                                            raw_frame=frame, warped=warped,
                                            fps=fps, chip_uuid=chip_uuid)
         frame_captured, frame = capture.read()
@@ -222,50 +231,7 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
 
     # When everything done, release the capture
     capture.release()
-    signals.signal('closed').send(None)
-
-
-def show_chip(signals):
-    '''
-    Display raw webcam view and corresponding perspective-corrected chip view.
-
-    Parameters
-    ----------
-    signals : blinker.Namespace
-        The following signals are connected::
-        - ``frame-ready``: video frame is ready.
-        - ``closed``: process has been closed.
-
-    See also
-    --------
-    chip_video_process()
-    '''
-    frame_ready = threading.Event()
-    update_lock = threading.Lock()
-    log_lock = threading.Lock()
-    closed = threading.Event()
-
-    def on_frame_ready(sender, **message):
-        with update_lock:
-            frame_ready.message = message
-            frame_ready.set()
-
-    signals.signal('frame-ready').connect(on_frame_ready, weak=False)
-    signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
-    print('Press "q" to quit')
-
-    while not closed.is_set():
-        if frame_ready.wait(.01):
-            with update_lock:
-                frame = frame_ready.message['frame']
-                cv2.imshow('DMF chip', frame)
-                frame_ready.clear()
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    signals.signal('exit-request').send(None)
-                    break
-
-    closed.wait()
-    cv2.destroyAllWindows()
+    signals.signal('closed').send('chip_video_process')
 
 
 def main(signals=None):
@@ -277,8 +243,12 @@ def main(signals=None):
 
     thread = threading.Thread(target=chip_video_process,
                               args=(signals, 1280, 720, 0))
-    thread.daemon = True
     thread.start()
 
+    loop = asyncio.get_event_loop()
+
     # Launch window to view chip video.
-    show_chip(signals)
+    loop.run_until_complete(show_chip(signals))
+
+    # Close background thread.
+    signals.signal('exit-request').send('main')
