@@ -52,6 +52,27 @@ device_corners /= 640, 480
 
 def show_chip(width=1920, height=1080, device_id=0, signals=None):
     '''
+    Display webcam view of DMF chip in window.
+
+    Image-processing is used as follows::
+    - Detected AruCo markers are used to apply a perspective transformation to
+      "flatten" the view of the chip.
+    - Detected QR code UUID is displayed in top-left corner of window.
+
+    Layout of the window::
+
+        ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃                                               ┃
+        ┃  Raw video frame (AruCo markers highlighted)  ┃
+        ┃                                               ┃
+        ┃                                               ┃
+        ┠┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┨
+        ┃                                               ┃
+        ┃  Perspective-corrected video frame            ┃
+        ┃  based on AruCo markers                       ┃
+        ┃                                               ┃
+        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
     Parameters
     ----------
     width : int, optional
