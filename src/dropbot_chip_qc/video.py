@@ -65,7 +65,6 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
         - ``frame-ready``: video frame is ready (frame is passed as ``frame``
           keyword argument).
     '''
-    print('Press "q" to quit')
     capture = cv2.VideoCapture(device_id)
     capture.set(cv2.CAP_PROP_AUTOFOCUS, True)
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -75,44 +74,6 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
         frame_captured, frame = capture.read()
     else:
         raise IOError('No frame.')
-
-    # Display barcode and QR code location
-    def draw_detected_barcodes(im, decodedObjects):
-        # Loop over all decoded objects
-        for decodedObject in decodedObjects:
-            points = decodedObject.polygon
-
-            # If the points do not form a quad, find convex hull
-            if len(points) > 4 :
-                hull = cv2.convexHull(np.array([point for point in points], dtype=np.float32))
-                hull = list(map(tuple, np.squeeze(hull)))
-            else :
-                hull = points;
-
-            # Number of points in the convex hull
-            n = len(hull)
-
-            # Draw the convext hull
-            for j in range(0,n):
-                cv2.line(im, hull[j], hull[ (j+1) % n], (255,0,0), 3)
-
-            object_i = decodedObject.__dict__.copy()
-            object_i['polygon'] = [point.__dict__
-                                   for point in object_i['polygon']]
-            json.dumps(object_i)
-
-            font                   = cv2.FONT_HERSHEY_SIMPLEX
-            bottomLeftCornerOfText = tuple([object_i['polygon'][-1][k] for k in 'xy'])
-            fontScale              = .5
-            fontColor              = (255, 255 ,255)
-            lineType               = 2
-
-            cv2.putText(im, object_i['data'],
-                        bottomLeftCornerOfText,
-                        font,
-                        fontScale,
-                        fontColor,
-                        lineType)
 
     corners_by_id = {}
 
@@ -218,6 +179,7 @@ def main():
                             kwargs={'signals': signals})
     thread.daemon = True
     thread.start()
+    print('Press "q" to quit')
 
     while True:
         if frame_ready.wait(.01):
