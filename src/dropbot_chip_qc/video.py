@@ -101,6 +101,9 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
 
     start = time.time()
     frame_count = 0
+    # Counter to debounce detection of missing chip; helps prevent spurious
+    # `chip-detected`/`chip-removed` events where chip has not actually moved.
+    not_detected_count = 0
     decodedObjects = []
     exit_requested = threading.Event()
     chip_detected = threading.Event()
@@ -135,6 +138,7 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
                 updated = True
 
         if updated and all(i in corners_by_id_i for i in range(2)):
+            not_detected_count = 0
             mean_corners = pd.concat((pd.DataFrame(np.array(corners_by_id[i])
                                                    .mean(axis=0)[0], columns=['x', 'y'],
                                                    index=['top-left', 'top-right',
@@ -146,6 +150,11 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
                                              frame.shape[:2][::-1]).values)
         else:
             M = None
+            not_detected_count += 1
+
+        if not_detected_count >= 10:
+            # AruCo markers have not been detected for the previous 10 frames;
+            # assume chip has been removed.
             chip_detected.clear()
             if signals is not None:
                 signals.signal('chip-removed').send(None)
