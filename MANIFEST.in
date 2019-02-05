@@ -1,0 +1,6 @@
+include README.md
+include setup.py
+graft src
+prune *.pyc
+include versioneer.py
+include src/dropbot_chip_qc/_version.py
