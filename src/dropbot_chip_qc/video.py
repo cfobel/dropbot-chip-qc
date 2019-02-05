@@ -1,11 +1,13 @@
 # -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import, unicode_literals
+import datetime as dt
 import json
 import logging
 import threading
 import time
 
 import blinker
+import functools as ft
 import numpy as np
 import pandas as pd
 import pyzbar.pyzbar as pyzbar
@@ -51,16 +53,24 @@ device_corners.loc[1, :] = np.roll(device_corners.loc[1].values, -4)
 device_corners /= 640, 480
 
 
-def show_chip(width=1920, height=1080, device_id=0, signals=None):
+def chip_video_process(signals, width=1920, height=1080, device_id=0):
     '''
-    Display webcam view of DMF chip in window.
+    Continuously monitor webcam feed for DMF chip.
 
-    Image-processing is used as follows::
-    - Detected AruCo markers are used to apply a perspective transformation to
-      "flatten" the view of the chip.
-    - Detected QR code UUID is displayed in top-left corner of window.
+    Repeatedly perform the following tasks:
 
-    Layout of the window::
+     - read video frame from the webcam
+     - detect AruCo markers in the frame, and draw overlay to indicate markers
+       (if available)
+     - apply perspective correction based on detected AruCo marker positions
+       (if applicable)
+     - detect chip UUID from QR code (if available)
+     - combine raw video frame and perspective-corrected frame into a single
+       frame
+     - write the chip UUID as text in top-left corner of the combined video
+       frame
+
+    Layout of the combined video frame::
 
         ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃                                               ┃
@@ -76,16 +86,26 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
 
     Parameters
     ----------
+    signals : blinker.Namespace
+        The following signals are sent::
+        - ``frame-ready``: video frame is ready; keyword arguments include::
+          - ``frame``: combined video frame
+          - ``raw_frame``: raw frame from webcam
+          - ``warped``: perspective-corrected frame
+          - ``transform``: perspective-correction transformation matrix
+          - ``fps``: rate of frame processing in frames per second
+          - ``chip_uuid``: UUID currently detected chip (``None`` if no chip is
+            detected)
+        - ``closed``: process has been closed (in response to a
+          ``exit-request`` signal).
+        - ``chip-detected``: new chip UUID has been detected
+        - ``chip-removed``: chip UUID no longer detected
     width : int, optional
         Video width.
     height : int, optional
         Video height.
     device_id : int, optional
         OpenCV video source id (starts at zero).
-    signals : blinker.Namespace, optional
-        If set, the following signals are sent::
-        - ``frame-ready``: video frame is ready (frame is passed as ``frame``
-          keyword argument).
     '''
     capture = cv2.VideoCapture(device_id)
     capture.set(cv2.CAP_PROP_AUTOFOCUS, True)
@@ -101,15 +121,21 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
 
     start = time.time()
     frame_count = 0
+    # Transformation matrix for perspective-corrected device view.
+    M = None
     # Counter to debounce detection of missing chip; helps prevent spurious
     # `chip-detected`/`chip-removed` events where chip has not actually moved.
     not_detected_count = 0
     decodedObjects = []
     exit_requested = threading.Event()
     chip_detected = threading.Event()
+    fps = 1
 
     signals.signal('exit-request').connect(lambda sender: exit_requested.set(),
                                            weak=False)
+
+    # Font used for UUID label.
+    font = cv2.FONT_HERSHEY_SIMPLEX
 
     while frame_captured and not exit_requested.is_set():
         # Find barcodes and QR codes
@@ -118,12 +144,21 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
             if decodedObjects:
                 chip_detected.decoded_objects = decodedObjects
                 chip_detected.set()
-                if signals is not None:
-                    signals.signal('chip-detected')\
-                        .send(None,
-                              decoded_objects=chip_detected.decoded_objects)
-                    logging.info('chip detected: %s',
-                                 chip_detected.decoded_objects)
+                # Find font scale to fit UUID to width of frame.
+                text = chip_detected.decoded_objects[0].data
+                scale = 4
+                thickness = 1
+                text_size = cv2.getTextSize(text, font, scale, thickness)
+                while text_size[0][0] > frame.shape[0]:
+                    scale *= .95
+                    text_size = cv2.getTextSize(text, font, scale, thickness)
+                chip_detected.label = {'uuid': text, 'scale': scale,
+                                       'thickness': 1, 'text_size': text_size}
+                signals.signal('chip-detected')\
+                    .send(None,
+                          decoded_objects=chip_detected.decoded_objects)
+                logging.info('chip detected: %s',
+                             chip_detected.decoded_objects)
 
         corners, ids, rejectedImgPoints = cv2.aruco.detectMarkers(frame, cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000))
         cv2.aruco.drawDetectedMarkers(frame, corners, ids)
@@ -148,16 +183,16 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
                                             .values,
                                             (device_corners.loc[corner_indices] *
                                              frame.shape[:2][::-1]).values)
-        else:
+        elif chip_detected.is_set():
             M = None
             not_detected_count += 1
 
-        if not_detected_count >= 10:
+        if M is None and not_detected_count >= 10:
+            not_detected_count = 0
             # AruCo markers have not been detected for the previous 10 frames;
             # assume chip has been removed.
             chip_detected.clear()
-            if signals is not None:
-                signals.signal('chip-removed').send(None)
+            signals.signal('chip-removed').send(None)
 
         if M is not None:
             warped =  cv2.warpPerspective(frame, M, frame.shape[:2][::-1])
@@ -167,34 +202,48 @@ def show_chip(width=1920, height=1080, device_id=0, signals=None):
         display_frame = cv2.resize(display_frame,
                                    tuple(np.array(display_frame.shape[:2]) /
                                          2))
-        if signals is not None:
-            signals.signal('frame-ready').send(None, frame=display_frame,
-                                               transform=M)
+        if chip_detected.is_set():
+            kwargs = chip_detected.label.copy()
+            cv2.putText(display_frame, kwargs['uuid'],
+                        (10, 10 + kwargs['text_size'][0][-1]), font,
+                        kwargs['scale'], (255,255,255),
+                        kwargs['thickness'], cv2.LINE_AA)
+            chip_uuid = chip_detected.label['uuid']
+        else:
+            chip_uuid = None
+        signals.signal('frame-ready').send(None, frame=display_frame,
+                                           transform=M,
+                                           raw_frame=frame, warped=warped,
+                                           fps=fps, chip_uuid=chip_uuid)
         frame_captured, frame = capture.read()
         if frame_captured:
             frame_count += 1
-        print('\r%-50s' % ('%.2f FPS (%s)' % (frame_count / (time.time() - start), frame_count)), end='')
+            fps = frame_count / (time.time() - start)
 
     # When everything done, release the capture
     capture.release()
-    if signals is not None:
-        signals.signal('closed').send(None)
+    signals.signal('closed').send(None)
 
 
-def main():
-    chip_detected = threading.Event()
-    frame_ready = threading.Event()
+def show_chip(signals):
+    '''
+    Display raw webcam view and corresponding perspective-corrected chip view.
 
-    signals = blinker.Namespace()
+    Parameters
+    ----------
+    signals : blinker.Namespace
+        The following signals are connected::
+        - ``frame-ready``: video frame is ready.
+        - ``closed``: process has been closed.
+
+    See also
+    --------
+    chip_video_process()
+    '''
     frame_ready = threading.Event()
     update_lock = threading.Lock()
+    log_lock = threading.Lock()
     closed = threading.Event()
-
-    def on_chip_detected(sender, decoded_objects=None):
-        if decoded_objects is not None:
-            with update_lock:
-                chip_detected.decoded_objects = decoded_objects
-                chip_detected.set()
 
     def on_frame_ready(sender, **message):
         with update_lock:
@@ -202,31 +251,13 @@ def main():
             frame_ready.set()
 
     signals.signal('frame-ready').connect(on_frame_ready, weak=False)
-    signals.signal('chip-detected').connect(on_chip_detected, weak=False)
-    signals.signal('chip-removed').connect(lambda sender:
-                                           chip_detected.clear(), weak=False)
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
-    thread = threading.Thread(target=show_chip, args=(1280, 720, 0),
-                            kwargs={'signals': signals})
-    thread.daemon = True
-    thread.start()
     print('Press "q" to quit')
 
-    while True:
+    while not closed.is_set():
         if frame_ready.wait(.01):
             with update_lock:
                 frame = frame_ready.message['frame']
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                thickness = 1
-                if chip_detected.is_set():
-                    text = chip_detected.decoded_objects[0].data
-                    scale = 4
-                    text_size = cv2.getTextSize(text, font, scale, thickness)
-                    while text_size[0][0] > frame.shape[0]:
-                        scale *= .95
-                        text_size = cv2.getTextSize(text, font, scale, thickness)
-                    cv2.putText(frame, text, (10, 10 + text_size[0][-1]), font,
-                                scale, (255,255,255), thickness, cv2.LINE_AA)
                 cv2.imshow('DMF chip', frame)
                 frame_ready.clear()
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -235,3 +266,19 @@ def main():
 
     closed.wait()
     cv2.destroyAllWindows()
+
+
+def main(signals=None):
+    '''
+    Launch chip webcam monitor thread and view window.
+    '''
+    if signals is None:
+        signals = blinker.Namespace()
+
+    thread = threading.Thread(target=chip_video_process,
+                              args=(signals, 1280, 720, 0))
+    thread.daemon = True
+    thread.start()
+
+    # Launch window to view chip video.
+    show_chip(signals)
