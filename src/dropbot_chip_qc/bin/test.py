@@ -13,9 +13,11 @@ import blinker
 import dropbot as db
 import dropbot.dispense
 import functools as ft
+import mutagen
 import networkx as nx
 import numpy as np
 import pandas as pd
+import path_helpers as ph
 import trollius as asyncio
 import winsound
 
@@ -53,6 +55,32 @@ def run_test(way_points, start_electrode):
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
 
+    def update_video(uuid, json_results_path):
+        json_results_path = ph.path(json_results_path)
+        videos = sorted(ph.path('~\Videos\Captures').expand()
+                        .files('*.MP4'), key=lambda x: x.mtime)
+        if videos:
+            video = videos[-1]
+            response = question('Attempt to set UUID in title of video file, '
+                                '`%s`?' % video, title='Update video?')
+            if response == QMessageBox.StandardButton.Yes:
+                try:
+                    f = mutagen.File(video)
+                    if ('\xa9nam' not in f.tags) or ('UUID' not in
+                                                     f.tags['\xa9nam']):
+                        f.tags['\xa9nam'] = \
+                            'DMF chip QC - UUID: %s' % uuid
+                        f.save()
+                        logging.info('wrote UUID to video title: `%s`', video)
+                except Exception as exception:
+                    logging.warning('Error setting video title.',
+                                    exc_info=True)
+                output_video_path = (json_results_path.parent
+                                     .joinpath('%s.mp4' %
+                                               json_results_path.namebase))
+                ph.path(video).move(output_video_path)
+                logging.info('moved video to : `%s`', output_video_path)
+
     def on_chip_detected(sender, **kwargs):
         @ft.wraps(on_chip_detected)
         def wrapped(sender, **kwargs):
@@ -87,6 +115,7 @@ def run_test(way_points, start_electrode):
                     with open(output_path, 'w') as output:
                         json.dump(result, output, indent=4)
                     logging.info('wrote test results: `%s`', output_path)
+                    loop.call_soon_threadsafe(update_video, uuid, output_path)
                 except nx.NetworkXNoPath as exception:
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
