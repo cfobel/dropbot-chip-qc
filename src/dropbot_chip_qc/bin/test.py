@@ -83,6 +83,10 @@ def run_test(way_points, start_electrode):
                         yield asyncio.From(_run_test(signals, proxy, G,
                                                      way_points,
                                                      start=start_electrode))
+                    output_path = '%s - qc results.json' % uuid
+                    with open(output_path, 'w') as output:
+                        json.dump(result, output, indent=4)
+                    logging.info('wrote test results: `%s`', output_path)
                 except nx.NetworkXNoPath as exception:
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
