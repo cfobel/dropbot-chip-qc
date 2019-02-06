@@ -1,4 +1,7 @@
+from __future__ import print_function, absolute_import
+import argparse
 import itertools as it
+import json
 import logging
 import sys
 import threading
@@ -36,7 +39,7 @@ def try_async_co(*args, **kwargs):
     return asyncio.wait_for(*args, **kwargs)
 
 
-def run_test():
+def run_test(way_points, start_electrode):
     ready = threading.Event()
     closed = threading.Event()
 
@@ -58,18 +61,31 @@ def run_test():
             ready.uuid = uuid
             ready.set()
 
-            db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=[110]))
+            db.dispense.apply_duty_cycles(proxy,
+                                          pd.Series(1, index=[start_electrode]))
 
             # Wait for chip to be detected.
-            response = question('Chip detected: `%s`.\n\nLiquid loaded into electrode '
-                                '110?' % uuid, title='Chip detected')
+            response = None
+
+            while response != QMessageBox.StandardButton.Yes:
+                response = question('Chip detected: `%s`.\n\nLiquid loaded '
+                                    'into electrode %s?' % (uuid,
+                                                            start_electrode),
+                                    title='Chip detected')
 
             proxy.stop_switching_matrix()
             proxy.turn_off_all_channels()
 
             @asyncio.coroutine
             def _run():
-                yield asyncio.From(_run_test(signals, proxy, G))
+                try:
+                    result = \
+                        yield asyncio.From(_run_test(signals, proxy, G,
+                                                     way_points,
+                                                     start=start_electrode))
+                except nx.NetworkXNoPath as exception:
+                    logging.error('QC test failed: `%s`', exception,
+                                  exc_info=True)
                 signals.signal('chip-detected').connect(on_chip_detected)
 
             qc_task = cancellable(_run)
@@ -95,13 +111,14 @@ def run_test():
     #########################
 
 @asyncio.coroutine
-def _run_test(signals, proxy, G, start=110):
+def _run_test(signals, proxy, G, way_points, start=None):
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
     G_i.remove_node(89)
     G_i.remove_node(30)
 
-    way_points = [110, 119, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26, 9, 0]
+    if start is None:
+        start = way_points[0]
     way_points_i = np.roll(way_points, -way_points.index(start)).tolist()
     way_points_i += [way_points[0]]
 
@@ -152,12 +169,37 @@ def _run_test(signals, proxy, G, start=110):
         yield asyncio.From(asyncio.sleep(0))
 
     db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=test_route_i))
-    logging.info('Completed - verified electrodes: `%s`' %
-                 sorted(success_nodes))
+    # Play system "beep" sound to notify user that electrode failed.
+    winsound.MessageBeep()
+    result = {'route': route, 'failed_nodes': sorted(set(route) -
+                                                     success_nodes),
+              'success_nodes': sorted(success_nodes)}
+    logging.info('Completed - failed electrodes: `%s`' %
+                 result['failed_nodes'])
+    raise asyncio.Return(result)
+
+
+def parse_args(args=None):
+    if args is None:
+        args = sys.argv[1:]
+    parser = argparse.ArgumentParser(description='DropBot chip quality '
+                                     'control')
+    parser.add_argument('-s', '--start', type=int, help='Start electrode')
+    parser.add_argument('way_points', help='Test waypoints as JSON list.')
+
+    args = parser.parse_args(args)
+
+    args.way_points = json.loads(args.way_points)
+
+    if args.start is None:
+        args.start = args.way_points[0]
+    return args
+
 
 if __name__ == '__main__':
+    args = parse_args()
     logging.basicConfig(level=logging.DEBUG,
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test()
+    run_test(args.way_points, args.start)
