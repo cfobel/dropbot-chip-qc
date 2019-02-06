@@ -1,14 +1,20 @@
+import itertools as it
 import logging
 import sys
 import threading
+import time
 
+from asyncio_helpers import cancellable
 from PySide2.QtWidgets import QMessageBox, QMainWindow, QApplication
 import blinker
 import dropbot as db
 import dropbot.dispense
 import functools as ft
+import networkx as nx
+import numpy as np
 import pandas as pd
 import trollius as asyncio
+import winsound
 
 from ..connect import connect
 from ..video import chip_video_process, show_chip
@@ -44,10 +50,10 @@ def run_test():
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
 
-    def on_chip_detected_wrapper(sender, **kwargs):
-        @ft.wraps(on_chip_detected_wrapper)
+    def on_chip_detected(sender, **kwargs):
+        @ft.wraps(on_chip_detected)
         def wrapped(sender, **kwargs):
-            signals.signal('chip-detected').disconnect(on_chip_detected_wrapper)
+            signals.signal('chip-detected').disconnect(on_chip_detected)
             uuid = kwargs['decoded_objects'][0].data
             ready.uuid = uuid
             ready.set()
@@ -60,11 +66,20 @@ def run_test():
 
             proxy.stop_switching_matrix()
             proxy.turn_off_all_channels()
-            signals.signal('chip-detected').connect(on_chip_detected_wrapper)
+
+            @asyncio.coroutine
+            def _run():
+                yield asyncio.From(_run_test(signals, proxy, G))
+                signals.signal('chip-detected').connect(on_chip_detected)
+
+            qc_task = cancellable(_run)
+            thread = threading.Thread(target=qc_task)
+            thread.daemon = True
+            thread.start()
 
         loop.call_soon_threadsafe(ft.partial(wrapped, sender, **kwargs))
 
-    signals.signal('chip-detected').connect(on_chip_detected_wrapper)
+    signals.signal('chip-detected').connect(on_chip_detected)
 
     thread = threading.Thread(target=chip_video_process,
                               args=(signals, 1280, 720, 0))
@@ -78,6 +93,67 @@ def run_test():
     closed.wait()
 
     #########################
+
+@asyncio.coroutine
+def _run_test(signals, proxy, G, start=110):
+    logging.info('Begin DMF chip test routine.')
+    G_i = G.copy()
+    G_i.remove_node(89)
+    G_i.remove_node(30)
+
+    way_points = [110, 119, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26, 9, 0]
+    way_points_i = np.roll(way_points, -way_points.index(start)).tolist()
+    way_points_i += [way_points[0]]
+
+    route = list(it.chain(*[nx.shortest_path(G_i, source, target)[:-1]
+                            for source, target in
+                            db.dispense
+                            .window(way_points_i, 2)])) + [way_points_i[-1]]
+
+    test_route_i = route[:]
+    success_nodes = set()
+
+    while len(test_route_i) > 1:
+        # Attempt to move liquid from first electrode to second electrode.
+        # If liquid movement fails:
+        #  * Alert operator (e.g., log notification, alert sound, etc.)
+        #  * Attempt to "route around" failed electrode
+        source_i = test_route_i.pop(0)
+
+        while test_route_i[0] not in G_i:
+            test_route_i.pop(0)
+            test_route_i = (nx.shortest_path(G_i, source_i, test_route_i[0])
+                            + test_route_i[1:])
+        target_i = test_route_i[0]
+
+        for i in range(2):
+            try:
+                yield asyncio.From(db.dispense
+                                   .move_liquid(proxy, [source_i, target_i],
+                                                wrapper=ft.partial(asyncio
+                                                                   .wait_for,
+                                                                   timeout=2)))
+                success_nodes.add(target_i)
+                break
+            except db.dispense.MoveTimeout as exception:
+                logging.warning('Timed out moving liquid `%s`->`%s`' %
+                                tuple(exception.route_i))
+                db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=[source]))
+                time.sleep(1.)
+        else:
+            # Play system "beep" sound to notify user that electrode failed.
+            winsound.MessageBeep()
+            logging.error('Failed to move liquid to electrode `%s`.', target_i)
+            # Remove failed electrode adjacency graph.
+            G_i.remove_node(target_i)
+            test_route_i = [source_i] + test_route_i
+            logging.warning('Attempting to reroute around electrode `%s`.',
+                            target_i)
+        yield asyncio.From(asyncio.sleep(0))
+
+    db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=test_route_i))
+    logging.info('Completed - verified electrodes: `%s`' %
+                 sorted(success_nodes))
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG,
