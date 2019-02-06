@@ -147,7 +147,7 @@ def _run_test(signals, proxy, G, way_points, start=None):
                             + test_route_i[1:])
         target_i = test_route_i[0]
 
-        for i in range(2):
+        for i in range(4):
             try:
                 yield asyncio.From(db.dispense
                                    .move_liquid(proxy, [source_i, target_i],
