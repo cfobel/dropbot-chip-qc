@@ -34,7 +34,7 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 
 def run_test(way_points, start_electrode, output_dir, video_dir=None,
-             overwrite=False):
+             overwrite=False, svg_source=None):
     '''
     Parameters
     ----------
@@ -77,7 +77,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
 
     logging.info('Wait for connection to DropBot...')
-    monitor_task, proxy, G = connect()
+    monitor_task, proxy, G = connect(svg_source=svg_source)
     proxy.voltage = 115
 
     def update_video(video, uuid):
@@ -345,9 +345,18 @@ def parse_args(args=None):
     parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
                         ' for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
-    parser.add_argument('way_points', help='Test waypoints as JSON list.')
     parser.add_argument('-f', '--force', action='store_true', help='Force '
                         'overwrite of existing files.')
+    parser.add_argument('-S', '--svg-path', type=ph.path,
+                        default=dropbot.DATA_DIR.joinpath('SCI-BOTS 90-pin '
+                                                          'array',
+                                                          'device.svg'),
+                        help="SVG device file (default='%(default)s')")
+    default_waypoints = [110, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26,
+                         9, 0, 119]
+    parser.add_argument('way_points', help='Test waypoints as JSON list '
+                        '(default="%(default)s").', nargs='?',
+                        default=str(default_waypoints))
 
     args = parser.parse_args(args)
 
@@ -365,4 +374,4 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
-             overwrite=args.force)
+             overwrite=args.force, svg_source=args.svg_path)

@@ -1,7 +1,9 @@
 from __future__ import (absolute_import, print_function, unicode_literals,
                         division)
+import io
 import logging
 import lxml
+import pkgutil
 import re
 import threading
 import time
@@ -21,20 +23,21 @@ import svg_model.data_frame as sdf
 import trollius as asyncio
 
 
-def load_device(svg_path=None):
-    if svg_path is None:
+def load_device(svg_source=None):
+    if svg_source is None:
         # Load Sci-Bots device file and extract neighbouring channels info.
-        svg_path = dropbot.DATA_DIR.joinpath('SCI-BOTS 90-pin array',
-                                             'device.svg')
+        svg_data = pkgutil.get_data('dropbot',
+                                    'static/SCI-BOTS 90-pin array/device.svg')
+        svg_source = io.BytesIO(svg_data)
 
     # Used cached neighbours result (if available).  Otherwise, cache neighbours.
     memcache = joblib.memory.Memory('.')
 
     get_channel_neighbours = memcache.cache(db.chip.get_channel_neighbours)
-    neighbours = get_channel_neighbours(svg_path)
+    neighbours = get_channel_neighbours(svg_source)
 
     ureg = pint.UnitRegistry()
-    root = lxml.etree.parse(svg_path)
+    root = lxml.etree.parse(svg_source)
     namespaces = svg_model.NSMAP
     namespaces.update(svg_model.INKSCAPE_NSMAP)
     inkscape_version = root.xpath('/svg:svg/@inkscape:version',
@@ -44,7 +47,7 @@ def load_device(svg_path=None):
     pixel_density = (96 if inkscape_version >=
                      semantic_version.Version('0.92.0') else 90) * ureg.PPI
 
-    df_shapes = svg_model.svg_shapes_to_df(svg_path)
+    df_shapes = svg_model.svg_shapes_to_df(svg_source)
     df_shapes.loc[:, ['x', 'y']] = (df_shapes.loc[:, ['x', 'y']].values *
                                     ureg.pixel / pixel_density).to('mm')
     df_shape_infos = sdf.get_shape_infos(df_shapes, 'id')
@@ -73,12 +76,11 @@ def load_device(svg_path=None):
     return G, neighbours
 
 
-def connect():
+def connect(svg_source=None):
     signals = blinker.Namespace()
 
     connected = threading.Event()
     proxy = None
-    _debug_data = {}
 
     @asyncio.coroutine
     def dump(*args, **kwargs):
@@ -141,7 +143,7 @@ def connect():
         time.sleep(1.)
         monitor_task.cancel()
 
-    G, neighbours = load_device()
+    G, neighbours = load_device(svg_source=svg_source)
     monitor_task, proxy = _connect()
     return monitor_task, proxy, G
 
