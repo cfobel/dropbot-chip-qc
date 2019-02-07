@@ -163,6 +163,34 @@ def run_test(way_points, start_electrode, video_dir=None):
 
 @asyncio.coroutine
 def _run_test(signals, proxy, G, way_points, start=None):
+    '''
+    Signals
+    -------
+
+    The following signals are sent during the test::
+    - ``electrode-success``; movement of liquid to electrode has
+      completed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts required for successful movement
+    - ``electrode-fail``:: movement of liquid to electrode has failed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts made for electrode movement
+    - ``test-complete``; test has completed::
+      - ``route``: list of electrodes visited consecutively
+      - ``failed_nodes``: list of electrodes where movement failed
+      - ``success_nodes``: list of electrodes where movement succeeded
+
+
+    .. versionchanged:: X.X.X
+        Send the following signals: ``electrode-success``, ``electrode-fail``,
+        ``test-complete``.
+    '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
     G_i.remove_node(89)
@@ -194,6 +222,7 @@ def _run_test(signals, proxy, G, way_points, start=None):
                             + test_route_i[1:])
         target_i = test_route_i[0]
 
+        start_time = time.time()
         for i in range(4):
             try:
                 yield asyncio.From(db.dispense
@@ -202,6 +231,12 @@ def _run_test(signals, proxy, G, way_points, start=None):
                                                                    .wait_for,
                                                                    timeout=2)))
                 success_nodes.add(target_i)
+                signals.signal('electrode-success').send('_run_test',
+                                                         source=source_i,
+                                                         target=target_i,
+                                                         start=start_time,
+                                                         end=time.time(),
+                                                         attempt=i + 1)
                 break
             except db.dispense.MoveTimeout as exception:
                 logging.warning('Timed out moving liquid `%s`->`%s`' %
@@ -212,6 +247,12 @@ def _run_test(signals, proxy, G, way_points, start=None):
             # Play system "beep" sound to notify user that electrode failed.
             winsound.MessageBeep()
             logging.error('Failed to move liquid to electrode `%s`.', target_i)
+            signals.signal('electrode-fail').send('_run_test',
+                                                  source=source_i,
+                                                  target=target_i,
+                                                  start=start_time,
+                                                  end=time.time(),
+                                                  attempt=i + 1)
             # Remove failed electrode adjacency graph.
             G_i.remove_node(target_i)
             test_route_i = [source_i] + test_route_i
@@ -227,6 +268,7 @@ def _run_test(signals, proxy, G, way_points, start=None):
               'success_nodes': sorted(success_nodes)}
     logging.info('Completed - failed electrodes: `%s`' %
                  result['failed_nodes'])
+    signals.signal('test-complete').send('_run_test', **result)
     raise asyncio.Return(result)
 
 
