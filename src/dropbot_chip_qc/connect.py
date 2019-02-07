@@ -104,27 +104,6 @@ def connect():
         disabled_channels_mask_i[neighbour_counts.loc[neighbour_counts < 1].index] = 1
         proxy.disabled_channels_mask = disabled_channels_mask_i
 
-        def _on_sensitive_capacitances(message):
-            '''
-            Update bar plot showing measured capacitance for each sensitive channel.
-
-            Parameters
-            ----------
-            message : dict
-                Example message::
-
-                    {"event": "sensitive-capacitances",
-                    "wall_time": ...,
-                    "C": [[<channel>, <capacitance>], ...]}
-            '''
-            try:
-                channels, capacitances = zip(*message['C'])
-            except Exception:
-                logging.debug('sensitive capacitances event error.', exc_info=True)
-                return
-
-        proxy.signals.signal('sensitive-capacitances').connect(_on_sensitive_capacitances, weak=False)
-
         connected.proxy = proxy
         connected.set()
 
