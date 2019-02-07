@@ -41,7 +41,10 @@ def try_async_co(*args, **kwargs):
     return asyncio.wait_for(*args, **kwargs)
 
 
-def run_test(way_points, start_electrode):
+def run_test(way_points, start_electrode, video_dir=None):
+    if video_dir is not None:
+        video_dir = ph.path(video_dir)
+
     ready = threading.Event()
     closed = threading.Event()
 
@@ -55,31 +58,27 @@ def run_test(way_points, start_electrode):
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
 
-    def update_video(uuid, json_results_path):
+    def update_video(video, uuid, json_results_path):
         json_results_path = ph.path(json_results_path)
-        videos = sorted(ph.path('~\Videos\Captures').expand()
-                        .files('*.MP4'), key=lambda x: x.mtime)
-        if videos:
-            video = videos[-1]
-            response = question('Attempt to set UUID in title of video file, '
-                                '`%s`?' % video, title='Update video?')
-            if response == QMessageBox.StandardButton.Yes:
-                try:
-                    f = mutagen.File(video)
-                    if ('\xa9nam' not in f.tags) or ('UUID' not in
-                                                     f.tags['\xa9nam']):
-                        f.tags['\xa9nam'] = \
-                            'DMF chip QC - UUID: %s' % uuid
-                        f.save()
-                        logging.info('wrote UUID to video title: `%s`', video)
-                except Exception as exception:
-                    logging.warning('Error setting video title.',
-                                    exc_info=True)
-                output_video_path = (json_results_path.parent
-                                     .joinpath('%s.mp4' %
-                                               json_results_path.namebase))
-                ph.path(video).move(output_video_path)
-                logging.info('moved video to : `%s`', output_video_path)
+        response = question('Attempt to set UUID in title of video file, '
+                            '`%s`?' % video, title='Update video?')
+        if response == QMessageBox.StandardButton.Yes:
+            try:
+                f = mutagen.File(video)
+                if ('\xa9nam' not in f.tags) or ('UUID' not in
+                                                 f.tags['\xa9nam']):
+                    f.tags['\xa9nam'] = \
+                        'DMF chip QC - UUID: %s' % uuid
+                    f.save()
+                    logging.info('wrote UUID to video title: `%s`', video)
+            except Exception:
+                logging.warning('Error setting video title.',
+                                exc_info=True)
+            output_video_path = (json_results_path.parent
+                                 .joinpath('%s.mp4' %
+                                           json_results_path.namebase))
+            ph.path(video).move(output_video_path)
+            logging.info('moved video to : `%s`', output_video_path)
 
     def on_chip_detected(sender, **kwargs):
         @ft.wraps(on_chip_detected)
@@ -107,6 +106,7 @@ def run_test(way_points, start_electrode):
             @asyncio.coroutine
             def _run():
                 try:
+                    start = time.time()
                     result = \
                         yield asyncio.From(_run_test(signals, proxy, G,
                                                      way_points,
@@ -115,7 +115,19 @@ def run_test(way_points, start_electrode):
                     with open(output_path, 'w') as output:
                         json.dump(result, output, indent=4)
                     logging.info('wrote test results: `%s`', output_path)
-                    loop.call_soon_threadsafe(update_video, uuid, output_path)
+                    if video_dir:
+                        # A video directory was provided.  Look for a video
+                        # corresponding to the same timeline as the test.
+                        # Only consider videos that were created within 1
+                        # minute of the start of the test.
+                        videos = sorted((p for p in
+                                         video_dir.expand().files('*.mp4')
+                                         if abs(p.ctime - start) < 60),
+                                        key=lambda x: -x.ctime)
+                        if videos:
+                            video = videos[-1]
+                            loop.call_soon_threadsafe(update_video, video,
+                                                      uuid, output_path)
                 except nx.NetworkXNoPath as exception:
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
@@ -217,6 +229,8 @@ def parse_args(args=None):
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
+    parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
+                        'for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
     parser.add_argument('way_points', help='Test waypoints as JSON list.')
 
@@ -235,4 +249,4 @@ if __name__ == '__main__':
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test(args.way_points, args.start)
+    run_test(args.way_points, args.start, args.video_dir)
