@@ -33,7 +33,7 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
     return QMessageBox.question(QMainWindow(), title, text, flags)
 
 
-def run_test(way_points, start_electrode, video_dir=None):
+def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
     '''
     Parameters
     ----------
@@ -48,9 +48,14 @@ def run_test(way_points, start_electrode, video_dir=None):
         Directory within which to search for videos corresponding to the start
         time of the test.  If a related video is found, offer to move/rename
         the video with the same name and location as the JSON results file.
+    overwrite : bool, optional
+        If ``True``, overwrite output files.  Otherwise, ask before
+        overwriting.
 
     .. versionchanged:: 0.2
-        Add ``video_dir`` argument.
+        Add ``video_dir`` keyword argument.
+    .. versionchanged:: X.X.X
+        Add ``overwrite`` keyword argument.
     '''
     if video_dir is not None:
         video_dir = ph.path(video_dir)
@@ -83,13 +88,17 @@ def run_test(way_points, start_electrode, video_dir=None):
                     f.save()
                     logging.info('wrote UUID to video title: `%s`', video)
             except Exception:
-                logging.warning('Error setting video title.',
-                                exc_info=True)
-            output_video_path = (json_results_path.parent
-                                 .joinpath('%s.mp4' %
-                                           json_results_path.namebase))
-            ph.path(video).move(output_video_path)
-            logging.info('moved video to : `%s`', output_video_path)
+                logging.warning('Error setting video title.', exc_info=True)
+            output_path = (json_results_path.parent
+                           .joinpath('%s.mp4' % json_results_path.namebase))
+            if not output_path.exists() or overwrite or \
+                    (question('Output `%s` exists.  Overwrite?' % output_path,
+                              title='Overwrite?') ==
+                     QMessageBox.StandardButton.Yes):
+                if output_path.exists():
+                    output_path.remove()
+                ph.path(video).move(output_path)
+                logging.info('moved video to : `%s`', output_path)
 
     def on_chip_detected(sender, **kwargs):
         @ft.wraps(on_chip_detected)
@@ -133,10 +142,6 @@ def run_test(way_points, start_electrode, video_dir=None):
                         yield asyncio.From(_run_test(signals, proxy, G,
                                                      way_points,
                                                      start=start_electrode))
-                    output_path = '%s - qc results.json' % uuid
-                    with open(output_path, 'w') as output:
-                        json.dump(result, output, indent=4)
-                    logging.info('wrote test results: `%s`', output_path)
                     if video_dir:
                         # A video directory was provided.  Look for a video
                         # corresponding to the same timeline as the test.
@@ -146,23 +151,41 @@ def run_test(way_points, start_electrode, video_dir=None):
                                          video_dir.expand().files('*.mp4')
                                          if abs(p.ctime - start) < 60),
                                         key=lambda x: -x.ctime)
+                        output_path = ph.path('%s - qc results.json' % uuid)
                         if videos:
                             video = videos[-1]
                             loop.call_soon_threadsafe(update_video, video,
                                                       uuid, output_path)
                 except nx.NetworkXNoPath as exception:
+                    result = {}
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
 
+                def write_results():
+                    output_path = ph.path('%s - qc results.json' % uuid)
+                    if not output_path.exists() or overwrite or \
+                            (question('Output `%s` exists.  Overwrite?' %
+                                     output_path, title='Overwrite?') ==
+                             QMessageBox.StandardButton.Yes):
+                        with open(output_path, 'w') as output:
+                            json.dump(result, output, indent=4)
+                        logging.info('wrote test results: `%s`', output_path)
+
                     # Write saved capacitances to file.
                     output_path = ph.path('%s - DropBot events.ndjson.gz' % uuid)
-                    with gzip.GzipFile(output_path, 'w',
-                                       compresslevel=2) as output:
-                        for record in dropbot_events:
-                            json.dump(record, output)
-                            output.write('\n')
-                    logging.info('wrote DropBot events to: `%s`',
-                                 output_path)
+                    if not output_path.exists() or overwrite or \
+                            (question('Output `%s` exists.  Overwrite?' %
+                                     output_path, title='Overwrite?') ==
+                             QMessageBox.StandardButton.Yes):
+                        with gzip.GzipFile(output_path, 'w',
+                                           compresslevel=2) as output:
+                            for record in dropbot_events:
+                                json.dump(record, output)
+                                output.write('\n')
+                        logging.info('wrote DropBot events to: `%s`',
+                                     output_path)
+
+                loop.call_soon_threadsafe(write_results)
 
                 signals.signal('chip-detected').connect(on_chip_detected)
 
@@ -304,9 +327,11 @@ def parse_args(args=None):
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
     parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
-                        'for recorded videos matching start time of test.')
+                        ' for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
     parser.add_argument('way_points', help='Test waypoints as JSON list.')
+    parser.add_argument('-f', '--force', action='store_true', help='Force '
+                        'overwrite of existing files.')
 
     args = parser.parse_args(args)
 
@@ -323,4 +348,4 @@ if __name__ == '__main__':
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test(args.way_points, args.start, args.video_dir)
+    run_test(args.way_points, args.start, args.video_dir, overwrite=args.force)
