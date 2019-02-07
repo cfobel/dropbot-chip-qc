@@ -1,13 +1,10 @@
 # -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import, unicode_literals
-import datetime as dt
-import json
 import logging
 import threading
 import time
 
 import blinker
-import functools as ft
 import numpy as np
 import pandas as pd
 import pyzbar.pyzbar as pyzbar
