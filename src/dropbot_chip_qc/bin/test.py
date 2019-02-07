@@ -1,5 +1,8 @@
+# -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import
 import argparse
+import datetime as dt
+import gzip
 import itertools as it
 import json
 import logging
@@ -62,6 +65,7 @@ def run_test(way_points, start_electrode, video_dir=None):
 
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
 
+    logging.info('Wait for connection to DropBot...')
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
 
@@ -112,6 +116,17 @@ def run_test(way_points, start_electrode, video_dir=None):
 
             @asyncio.coroutine
             def _run():
+                dropbot_events = []
+
+                def log_event(message):
+                    # Add UTC timestamp to each event.
+                    message['utc_time'] = dt.datetime.utcnow().isoformat()
+                    dropbot_events.append(message)
+
+                # Log DropBot events in memory.
+                proxy.signals.signal('sensitive-capacitances')\
+                    .connect(log_event)
+
                 try:
                     start = time.time()
                     result = \
@@ -138,6 +153,17 @@ def run_test(way_points, start_electrode, video_dir=None):
                 except nx.NetworkXNoPath as exception:
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
+
+                    # Write saved capacitances to file.
+                    output_path = ph.path('%s - DropBot events.ndjson.gz' % uuid)
+                    with gzip.GzipFile(output_path, 'w',
+                                       compresslevel=2) as output:
+                        for record in dropbot_events:
+                            json.dump(record, output)
+                            output.write('\n')
+                    logging.info('wrote DropBot events to: `%s`',
+                                 output_path)
+
                 signals.signal('chip-detected').connect(on_chip_detected)
 
             qc_task = cancellable(_run)
