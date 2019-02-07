@@ -31,6 +31,24 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 
 def run_test(way_points, start_electrode, video_dir=None):
+    '''
+    Parameters
+    ----------
+    way_points : list[int]
+        Contiguous list of waypoints, where test is routed as the shortest path
+        between each consecutive pair of waypoints.
+    start_electrode : int
+        Waypoint to treat as starting point.  If not the first waypoint in
+        ``way_points``, the test route will "wrap around" until the
+        ``start_electrode`` is reached again.
+    video_dir : str, optional
+        Directory within which to search for videos corresponding to the start
+        time of the test.  If a related video is found, offer to move/rename
+        the video with the same name and location as the JSON results file.
+
+    .. versionchanged:: 0.2
+        Add ``video_dir`` argument.
+    '''
     if video_dir is not None:
         video_dir = ph.path(video_dir)
 
