@@ -33,7 +33,8 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
     return QMessageBox.question(QMainWindow(), title, text, flags)
 
 
-def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
+def run_test(way_points, start_electrode, output_dir, video_dir=None,
+             overwrite=False):
     '''
     Parameters
     ----------
@@ -44,6 +45,9 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
         Waypoint to treat as starting point.  If not the first waypoint in
         ``way_points``, the test route will "wrap around" until the
         ``start_electrode`` is reached again.
+    output_dir : str
+        Directory to write output files to.  May include ``'%%(uuid)s'`` as
+        placeholder for chip UUID, e.g., ``~/my_output_dir/%%(uuid)s-results``.
     video_dir : str, optional
         Directory within which to search for videos corresponding to the start
         time of the test.  If a related video is found, offer to move/rename
@@ -55,8 +59,10 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
     .. versionchanged:: 0.2
         Add ``video_dir`` keyword argument.
     .. versionchanged:: X.X.X
-        Add ``overwrite`` keyword argument.
+        Add ``output_dir`` argument and ``overwrite`` keyword argument.
     '''
+    output_dir = ph.path(output_dir)
+
     if video_dir is not None:
         video_dir = ph.path(video_dir)
 
@@ -74,8 +80,7 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
 
-    def update_video(video, uuid, json_results_path):
-        json_results_path = ph.path(json_results_path)
+    def update_video(video, uuid):
         response = question('Attempt to set UUID in title of video file, '
                             '`%s`?' % video, title='Update video?')
         if response == QMessageBox.StandardButton.Yes:
@@ -89,8 +94,11 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
                     logging.info('wrote UUID to video title: `%s`', video)
             except Exception:
                 logging.warning('Error setting video title.', exc_info=True)
-            output_path = (json_results_path.parent
-                           .joinpath('%s.mp4' % json_results_path.namebase))
+            # Substitute UUID into output directory path as necessary.
+            output_dir_ = ph.path(output_dir % {'uuid':
+                                                uuid}).expand().realpath()
+            output_dir_.makedirs_p()
+            output_path = output_dir_.joinpath('%s.mp4' % uuid)
             if not output_path.exists() or overwrite or \
                     (question('Output `%s` exists.  Overwrite?' % output_path,
                               title='Overwrite?') ==
@@ -151,18 +159,21 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
                                          video_dir.expand().files('*.mp4')
                                          if abs(p.ctime - start) < 60),
                                         key=lambda x: -x.ctime)
-                        output_path = ph.path('%s - qc results.json' % uuid)
                         if videos:
-                            video = videos[-1]
-                            loop.call_soon_threadsafe(update_video, video,
-                                                      uuid, output_path)
+                            loop.call_soon_threadsafe(update_video, videos[-1],
+                                                      uuid)
                 except nx.NetworkXNoPath as exception:
                     result = {}
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
 
                 def write_results():
-                    output_path = ph.path('%s - qc results.json' % uuid)
+                    # Substitute UUID into output directory path as necessary.
+                    output_dir_ = ph.path(output_dir %
+                                          {'uuid': uuid}).expand().realpath()
+                    output_dir_.makedirs_p()
+                    output_path = output_dir_.joinpath('%s - qc results.json' %
+                                                       uuid)
                     if not output_path.exists() or overwrite or \
                             (question('Output `%s` exists.  Overwrite?' %
                                      output_path, title='Overwrite?') ==
@@ -172,7 +183,9 @@ def run_test(way_points, start_electrode, video_dir=None, overwrite=False):
                         logging.info('wrote test results: `%s`', output_path)
 
                     # Write saved capacitances to file.
-                    output_path = ph.path('%s - DropBot events.ndjson.gz' % uuid)
+                    output_path = output_dir_.joinpath('%s - DropBot '
+                                                       'events.ndjson.gz' %
+                                                       uuid)
                     if not output_path.exists() or overwrite or \
                             (question('Output `%s` exists.  Overwrite?' %
                                      output_path, title='Overwrite?') ==
@@ -326,6 +339,9 @@ def parse_args(args=None):
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
+    parser.add_argument('-d', '--output-dir', type=ph.path,
+                        default=ph.path('.'), help="Output directory "
+                        "(default='%(default)s').")
     parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
                         ' for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
@@ -348,4 +364,5 @@ if __name__ == '__main__':
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test(args.way_points, args.start, args.video_dir, overwrite=args.force)
+    run_test(args.way_points, args.start, args.output_dir, args.video_dir,
+             overwrite=args.force)
