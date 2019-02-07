@@ -30,17 +30,6 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
     return QMessageBox.question(QMainWindow(), title, text, flags)
 
 
-def try_async(*args, **kwargs):
-    loop = asyncio.get_event_loop()
-    kwargs['timeout'] = kwargs.get('timeout', 5)
-    return loop.run_until_complete(asyncio.wait_for(*args, **kwargs))
-
-
-def try_async_co(*args, **kwargs):
-    kwargs['timeout'] = kwargs.get('timeout', 5)
-    return asyncio.wait_for(*args, **kwargs)
-
-
 def run_test(way_points, start_electrode, video_dir=None):
     if video_dir is not None:
         video_dir = ph.path(video_dir)
@@ -153,7 +142,6 @@ def run_test(way_points, start_electrode, video_dir=None):
     signals.signal('exit-request').send('main')
     closed.wait()
 
-    #########################
 
 @asyncio.coroutine
 def _run_test(signals, proxy, G, way_points, start=None):
