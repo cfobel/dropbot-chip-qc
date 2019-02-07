@@ -13,9 +13,11 @@ import blinker
 import dropbot as db
 import dropbot.dispense
 import functools as ft
+import mutagen
 import networkx as nx
 import numpy as np
 import pandas as pd
+import path_helpers as ph
 import trollius as asyncio
 import winsound
 
@@ -28,18 +30,28 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
     return QMessageBox.question(QMainWindow(), title, text, flags)
 
 
-def try_async(*args, **kwargs):
-    loop = asyncio.get_event_loop()
-    kwargs['timeout'] = kwargs.get('timeout', 5)
-    return loop.run_until_complete(asyncio.wait_for(*args, **kwargs))
+def run_test(way_points, start_electrode, video_dir=None):
+    '''
+    Parameters
+    ----------
+    way_points : list[int]
+        Contiguous list of waypoints, where test is routed as the shortest path
+        between each consecutive pair of waypoints.
+    start_electrode : int
+        Waypoint to treat as starting point.  If not the first waypoint in
+        ``way_points``, the test route will "wrap around" until the
+        ``start_electrode`` is reached again.
+    video_dir : str, optional
+        Directory within which to search for videos corresponding to the start
+        time of the test.  If a related video is found, offer to move/rename
+        the video with the same name and location as the JSON results file.
 
+    .. versionchanged:: 0.2
+        Add ``video_dir`` argument.
+    '''
+    if video_dir is not None:
+        video_dir = ph.path(video_dir)
 
-def try_async_co(*args, **kwargs):
-    kwargs['timeout'] = kwargs.get('timeout', 5)
-    return asyncio.wait_for(*args, **kwargs)
-
-
-def run_test(way_points, start_electrode):
     ready = threading.Event()
     closed = threading.Event()
 
@@ -52,6 +64,28 @@ def run_test(way_points, start_electrode):
 
     monitor_task, proxy, G = connect()
     proxy.voltage = 115
+
+    def update_video(video, uuid, json_results_path):
+        json_results_path = ph.path(json_results_path)
+        response = question('Attempt to set UUID in title of video file, '
+                            '`%s`?' % video, title='Update video?')
+        if response == QMessageBox.StandardButton.Yes:
+            try:
+                f = mutagen.File(video)
+                if ('\xa9nam' not in f.tags) or ('UUID' not in
+                                                 f.tags['\xa9nam']):
+                    f.tags['\xa9nam'] = \
+                        'DMF chip QC - UUID: %s' % uuid
+                    f.save()
+                    logging.info('wrote UUID to video title: `%s`', video)
+            except Exception:
+                logging.warning('Error setting video title.',
+                                exc_info=True)
+            output_video_path = (json_results_path.parent
+                                 .joinpath('%s.mp4' %
+                                           json_results_path.namebase))
+            ph.path(video).move(output_video_path)
+            logging.info('moved video to : `%s`', output_video_path)
 
     def on_chip_detected(sender, **kwargs):
         @ft.wraps(on_chip_detected)
@@ -79,6 +113,7 @@ def run_test(way_points, start_electrode):
             @asyncio.coroutine
             def _run():
                 try:
+                    start = time.time()
                     result = \
                         yield asyncio.From(_run_test(signals, proxy, G,
                                                      way_points,
@@ -87,6 +122,19 @@ def run_test(way_points, start_electrode):
                     with open(output_path, 'w') as output:
                         json.dump(result, output, indent=4)
                     logging.info('wrote test results: `%s`', output_path)
+                    if video_dir:
+                        # A video directory was provided.  Look for a video
+                        # corresponding to the same timeline as the test.
+                        # Only consider videos that were created within 1
+                        # minute of the start of the test.
+                        videos = sorted((p for p in
+                                         video_dir.expand().files('*.mp4')
+                                         if abs(p.ctime - start) < 60),
+                                        key=lambda x: -x.ctime)
+                        if videos:
+                            video = videos[-1]
+                            loop.call_soon_threadsafe(update_video, video,
+                                                      uuid, output_path)
                 except nx.NetworkXNoPath as exception:
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
@@ -112,7 +160,6 @@ def run_test(way_points, start_electrode):
     signals.signal('exit-request').send('main')
     closed.wait()
 
-    #########################
 
 @asyncio.coroutine
 def _run_test(signals, proxy, G, way_points, start=None):
@@ -188,6 +235,8 @@ def parse_args(args=None):
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
+    parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
+                        'for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
     parser.add_argument('way_points', help='Test waypoints as JSON list.')
 
@@ -206,4 +255,4 @@ if __name__ == '__main__':
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test(args.way_points, args.start)
+    run_test(args.way_points, args.start, args.video_dir)
