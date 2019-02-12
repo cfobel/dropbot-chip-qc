@@ -27,6 +27,17 @@ import winsound
 from ..connect import connect
 from ..video import chip_video_process, show_chip
 
+def _date_subs_dict(datetime_=None):
+    if datetime_ is None:
+        datetime_ = dt.datetime.utcnow()
+    return {'Y': datetime_.strftime('%Y'),
+            'm': datetime_.strftime('%m'),
+            'd': datetime_.strftime('%d'),
+            'H': datetime_.strftime('%H'),
+            'I': datetime_.strftime('%I'),
+            'M': datetime_.strftime('%M'),
+            'S': datetime_.strftime('%S')}
+
 
 def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
              QMessageBox.StandardButton.No):
@@ -95,8 +106,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
             except Exception:
                 logging.warning('Error setting video title.', exc_info=True)
             # Substitute UUID into output directory path as necessary.
-            output_dir_ = ph.path(output_dir % {'uuid':
-                                                uuid}).expand().realpath()
+            path_subs_dict = {'uuid': uuid}
+            path_subs_dict.update(_date_subs_dict())
+            output_dir_ = ph.path(output_dir %
+                                  path_subs_dict).expand().realpath()
             output_dir_.makedirs_p()
             output_path = output_dir_.joinpath('%s.mp4' % uuid)
             if not output_path.exists() or overwrite or \
@@ -169,8 +182,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
 
                 def write_results():
                     # Substitute UUID into output directory path as necessary.
+                    path_subs_dict = {'uuid': uuid}
+                    path_subs_dict.update(_date_subs_dict())
                     output_dir_ = ph.path(output_dir %
-                                          {'uuid': uuid}).expand().realpath()
+                                          path_subs_dict).expand().realpath()
                     output_dir_.makedirs_p()
                     output_path = output_dir_.joinpath('%s - qc results.json' %
                                                        uuid)
