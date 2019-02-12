@@ -2,7 +2,6 @@
 from __future__ import print_function, absolute_import
 import argparse
 import datetime as dt
-import gzip
 import itertools as it
 import json
 import logging
@@ -15,6 +14,7 @@ from PySide2.QtWidgets import QMessageBox, QMainWindow, QApplication
 import blinker
 import dropbot as db
 import dropbot.dispense
+import dropbot.self_test
 import functools as ft
 import mutagen
 import networkx as nx
@@ -26,6 +26,7 @@ import winsound
 
 from .. import __version__
 from ..connect import connect
+from ..render import render_summary
 from ..video import chip_video_process, show_chip
 
 
@@ -73,6 +74,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``video_dir`` keyword argument.
     .. versionchanged:: 0.3
         Add ``output_dir`` argument and ``overwrite`` keyword argument.
+    .. versionchanged:: 0.4
+        Write each test result a self-contained HTML file in the specified
+        output directory.
     '''
     output_dir = ph.path(output_dir)
 
@@ -166,6 +170,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                     # Add chip and DropBot system info to `test-start` message.
                     if event == 'test-start':
                         message['uuid'] = uuid
+                        message['dropbot'] = {'system_info':
+                                              db.self_test.system_info(proxy),
+                                              'i2c_scan':
+                                              db.self_test.test_i2c(proxy)}
                     log_event(message)
 
                 loggers = {e: ft.partial(lambda event, sender, **kwargs:
@@ -177,10 +185,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
 
                 try:
                     start = time.time()
-                    result = \
-                        yield asyncio.From(_run_test(signals, proxy, G,
-                                                     way_points,
-                                                     start=start_electrode))
+                    yield asyncio.From(_run_test(signals, proxy, G, way_points,
+                                                 start=start_electrode))
                     if video_dir:
                         # A video directory was provided.  Look for a video
                         # corresponding to the same timeline as the test.
@@ -194,7 +200,6 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                             loop.call_soon_threadsafe(update_video, videos[-1],
                                                       uuid)
                 except nx.NetworkXNoPath as exception:
-                    result = {}
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
 
@@ -205,29 +210,17 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                     output_dir_ = ph.path(output_dir %
                                           path_subs_dict).expand().realpath()
                     output_dir_.makedirs_p()
-                    output_path = output_dir_.joinpath('%s - qc results.json' %
-                                                       uuid)
-                    if not output_path.exists() or overwrite or \
-                            (question('Output `%s` exists.  Overwrite?' %
-                                     output_path, title='Overwrite?') ==
-                             QMessageBox.StandardButton.Yes):
-                        with open(output_path, 'w') as output:
-                            json.dump(result, output, indent=4)
-                        logging.info('wrote test results: `%s`', output_path)
 
-                    # Write saved capacitances to file.
-                    output_path = output_dir_.joinpath('%s - DropBot '
-                                                       'events.ndjson.gz' %
-                                                       uuid)
+                    # Write logged events to file.
+                    output_path = \
+                        output_dir_.joinpath('Chip test report - %s.html' %
+                                             uuid)
                     if not output_path.exists() or overwrite or \
                             (question('Output `%s` exists.  Overwrite?' %
                                      output_path, title='Overwrite?') ==
                              QMessageBox.StandardButton.Yes):
-                        with gzip.GzipFile(output_path, 'w',
-                                           compresslevel=2) as output:
-                            for record in dropbot_events:
-                                json.dump(record, output)
-                                output.write('\n')
+                        render_summary(dropbot_events, output_path,
+                                       svg_source=svg_source)
                         logging.info('wrote events log to: `%s`', output_path)
 
                 loop.call_soon_threadsafe(write_results)
@@ -304,6 +297,8 @@ def _run_test(signals, proxy, G, way_points, start=None):
     '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
+    # XXX TODO Remove channel mapping for electrodes 89 and 30 in `SCI-BOTS
+    # 90-pin array` device SVG.
     G_i.remove_node(89)
     G_i.remove_node(30)
 
