@@ -24,8 +24,10 @@ import path_helpers as ph
 import trollius as asyncio
 import winsound
 
+from .. import __version__
 from ..connect import connect
 from ..video import chip_video_process, show_chip
+
 
 def _date_subs_dict(datetime_=None):
     if datetime_ is None:
@@ -157,6 +159,22 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                 proxy.signals.signal('sensitive-capacitances')\
                     .connect(log_event)
 
+                # Log route events in memory.
+                def log_route_event(event, message):
+                    # Tag kwargs with route event name.
+                    message['event'] = event
+                    # Add chip and DropBot system info to `test-start` message.
+                    if event == 'test-start':
+                        message['uuid'] = uuid
+                    log_event(message)
+
+                loggers = {e: ft.partial(lambda event, sender, **kwargs:
+                                         log_route_event(event, kwargs), e)
+                           for e in ('electrode-success', 'electrode-fail',
+                                     'test-start', 'test-complete')}
+                for event, logger in loggers.items():
+                    signals.signal(event).connect(logger)
+
                 try:
                     start = time.time()
                     result = \
@@ -210,8 +228,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                             for record in dropbot_events:
                                 json.dump(record, output)
                                 output.write('\n')
-                        logging.info('wrote DropBot events to: `%s`',
-                                     output_path)
+                        logging.info('wrote events log to: `%s`', output_path)
 
                 loop.call_soon_threadsafe(write_results)
 
@@ -245,8 +262,19 @@ def _run_test(signals, proxy, G, way_points, start=None):
     -------
 
     The following signals are sent during the test::
+    - ``test-start``; test has started::
+      - ``route``: planned list of electrodes to visit consecutively
+      - ``way_points``: contiguous list of waypoints, where test is routed as
+        the shortest path between each consecutive pair of waypoints
     - ``electrode-success``; movement of liquid to electrode has
       completed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts required for successful movement
+    - ``electrode-attempt-fail``; single attempt to move liquid to target
+      electrode has failed::
       - ``source``: electrode where liquid is moving **_from_**
       - ``target``: electrode where liquid is moving **_to_**
       - ``start``: **_start_** time for electrode movement attempt
@@ -259,14 +287,20 @@ def _run_test(signals, proxy, G, way_points, start=None):
       - ``end``: **_end_** time for electrode movement attempt
       - ``attempt``: attempts made for electrode movement
     - ``test-complete``; test has completed::
-      - ``route``: list of electrodes visited consecutively
-      - ``failed_nodes``: list of electrodes where movement failed
-      - ``success_nodes``: list of electrodes where movement succeeded
+      - ``success_route``: list of electrodes visited consecutively
+      - ``failed_electrodes``: list of electrodes where movement failed
+      - ``success_electrodes``: list of electrodes where movement succeeded
 
 
     .. versionchanged:: X.X.X
-        Send the following signals: ``electrode-success``, ``electrode-fail``,
-        ``test-complete``.
+        Send the following signals: ``electrode-success``,
+        ``electrode-attempt-fail``, ``electrode-fail``, ``test-complete``.
+    .. versionchanged:: X.X.X
+        Rename results dictionary keys::
+        - ``route`` -> ``success_route``, i.e., actual route taken including
+          re-routes
+        - ``failed_nodes`` -> ``failed_electrodes``
+        - ``success_nodes`` -> ``success_electrodes``
     '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
@@ -283,21 +317,24 @@ def _run_test(signals, proxy, G, way_points, start=None):
                             db.dispense
                             .window(way_points_i, 2)])) + [way_points_i[-1]]
 
-    test_route_i = route[:]
-    success_nodes = set()
+    signals.signal('test-start').send('_run_test', route=route,
+                                      way_points=way_points_i)
 
-    while len(test_route_i) > 1:
+    remaining_route_i = route[:]
+    success_route = route[:1]
+
+    while len(remaining_route_i) > 1:
         # Attempt to move liquid from first electrode to second electrode.
         # If liquid movement fails:
         #  * Alert operator (e.g., log notification, alert sound, etc.)
         #  * Attempt to "route around" failed electrode
-        source_i = test_route_i.pop(0)
+        source_i = remaining_route_i.pop(0)
 
-        while test_route_i[0] not in G_i:
-            test_route_i.pop(0)
-            test_route_i = (nx.shortest_path(G_i, source_i, test_route_i[0])
-                            + test_route_i[1:])
-        target_i = test_route_i[0]
+        while remaining_route_i[0] not in G_i:
+            remaining_route_i.pop(0)
+            remaining_route_i = (nx.shortest_path(G_i, source_i, remaining_route_i[0])
+                            + remaining_route_i[1:])
+        target_i = remaining_route_i[0]
 
         start_time = time.time()
         for i in range(4):
@@ -307,7 +344,7 @@ def _run_test(signals, proxy, G, way_points, start=None):
                                                 wrapper=ft.partial(asyncio
                                                                    .wait_for,
                                                                    timeout=2)))
-                success_nodes.add(target_i)
+                success_route.append(target_i)
                 signals.signal('electrode-success').send('_run_test',
                                                          source=source_i,
                                                          target=target_i,
@@ -319,6 +356,9 @@ def _run_test(signals, proxy, G, way_points, start=None):
                 logging.warning('Timed out moving liquid `%s`->`%s`' %
                                 tuple(exception.route_i))
                 db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=[source]))
+                signals.signal('electrode-attempt-fail')\
+                    .send('_run_test', source=source_i, target=target_i,
+                          start=start_time, end=time.time(), attempt=i + 1)
                 time.sleep(1.)
         else:
             # Play system "beep" sound to notify user that electrode failed.
@@ -332,19 +372,20 @@ def _run_test(signals, proxy, G, way_points, start=None):
                                                   attempt=i + 1)
             # Remove failed electrode adjacency graph.
             G_i.remove_node(target_i)
-            test_route_i = [source_i] + test_route_i
+            remaining_route_i = [source_i] + remaining_route_i
             logging.warning('Attempting to reroute around electrode `%s`.',
                             target_i)
         yield asyncio.From(asyncio.sleep(0))
 
-    db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=test_route_i))
+    db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=remaining_route_i))
     # Play system "beep" sound to notify user that electrode failed.
     winsound.MessageBeep()
-    result = {'route': route, 'failed_nodes': sorted(set(route) -
-                                                     success_nodes),
-              'success_nodes': sorted(success_nodes)}
+    result = {'success_route': success_route,
+              'failed_electrodes': sorted(set(route) - set(success_route)),
+              'success_electrodes': sorted(set(success_route)),
+              '__version__': __version__}
     logging.info('Completed - failed electrodes: `%s`' %
-                 result['failed_nodes'])
+                 result['failed_electrodes'])
     signals.signal('test-complete').send('_run_test', **result)
     raise asyncio.Return(result)
 
