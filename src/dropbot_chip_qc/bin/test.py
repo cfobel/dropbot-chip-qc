@@ -473,7 +473,7 @@ def parse_args(args=None):
     return args
 
 
-if __name__ == '__main__':
+def main():
     args = parse_args()
     logging.basicConfig(level=logging.DEBUG,
                         format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -481,3 +481,7 @@ if __name__ == '__main__':
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
              overwrite=args.force, svg_source=args.svg_path)
+
+
+if __name__ == '__main__':
+    main()
