@@ -56,16 +56,21 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Contiguous list of waypoints, where test is routed as the shortest path
         between each consecutive pair of waypoints.
     start_electrode : int
-        Waypoint to treat as starting point.  If not the first waypoint in
-        ``way_points``, the test route will "wrap around" until the
-        ``start_electrode`` is reached again.
+        Waypoint to treat as starting point.
+
+        If not the first waypoint in ``way_points``, the test route will "wrap
+        around" until the ``start_electrode`` is reached again.
     output_dir : str
-        Directory to write output files to.  May include ``'%%(uuid)s'`` as
-        placeholder for chip UUID, e.g., ``~/my_output_dir/%%(uuid)s-results``.
+        Directory to write output files to.
+
+        May include ``'%(uuid)s'`` as placeholder for chip UUID, e.g.,
+        ``~/my_output_dir/%(uuid)s-results``.
     video_dir : str, optional
         Directory within which to search for videos corresponding to the start
-        time of the test.  If a related video is found, offer to move/rename
-        the video with the same name and location as the JSON results file.
+        time of the test.
+
+        If a related video is found, offer to move/rename the video with the
+        same name and location as the output results file.
     overwrite : bool, optional
         If ``True``, overwrite output files.  Otherwise, ask before
         overwriting.

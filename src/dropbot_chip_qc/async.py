@@ -7,6 +7,17 @@ import trollius as asyncio
 
 @asyncio.coroutine
 def read_frame(signals):
+    '''
+    :py:mod:`trollius` `asyncio` wrapper to return a single frame produced by a
+    ``frame-ready`` event signalled by
+    :func:`dropbot_chip_qc.video.chip_video_process()`.
+
+    Parameters
+    ----------
+    signals : blinker.Namespace
+        DMF chip webcam monitor signals (see
+        :func:`dropbot_chip_qc.video.chip_video_process()`).
+    '''
     loop = asyncio.get_event_loop()
 
     frame_ready = asyncio.Event()
@@ -32,16 +43,15 @@ def show_chip(signals, title='DMF chip'):
     Parameters
     ----------
     signals : blinker.Namespace
-        DMF chip webcam monitor signals (see `chip_video_process()`).
+        DMF chip webcam monitor signals (see
+        :func:`dropbot_chip_qc.video.chip_video_process()`).
     title : str, optional
         Window title.
 
     See also
     --------
-    `read_frame()`, `chip_video_process()`
+    read_frame(), dropbot_chip_qc.video.chip_video_process()
     '''
-    loop = asyncio.get_event_loop()
-
     print('Press "q" to quit')
 
     while True:
