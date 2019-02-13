@@ -71,7 +71,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
 
     .. versionchanged:: 0.2
         Add ``video_dir`` keyword argument.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.3
         Add ``output_dir`` argument and ``overwrite`` keyword argument.
     '''
     output_dir = ph.path(output_dir)
@@ -292,10 +292,10 @@ def _run_test(signals, proxy, G, way_points, start=None):
       - ``success_electrodes``: list of electrodes where movement succeeded
 
 
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.3
         Send the following signals: ``electrode-success``,
         ``electrode-attempt-fail``, ``electrode-fail``, ``test-complete``.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.3
         Rename results dictionary keys::
         - ``route`` -> ``success_route``, i.e., actual route taken including
           re-routes
