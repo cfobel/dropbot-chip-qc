@@ -265,38 +265,58 @@ def _run_test(signals, proxy, G, way_points, start=None):
     Signals
     -------
 
-    The following signals are sent during the test::
-    - ``test-start``; test has started::
+    The following signals are sent during the test:
+
+    * ``test-start``; test has started:
+
       - ``route``: planned list of electrodes to visit consecutively
       - ``way_points``: contiguous list of waypoints, where test is routed as
         the shortest path between each consecutive pair of waypoints
-    - ``electrode-success``; movement of liquid to electrode has
-      completed::
-      - ``source``: electrode where liquid is moving **_from_**
-      - ``target``: electrode where liquid is moving **_to_**
-      - ``start``: **_start_** time for electrode movement attempt
-      - ``end``: **_end_** time for electrode movement attempt
+
+    * ``electrode-success``; movement of liquid to electrode has
+      completed:
+
+      - ``source``: electrode where liquid is moving **from**
+      - ``target``: electrode where liquid is moving **to**
+      - ``start``: **start** time for electrode movement attempt
+      - ``end``: **end** time for electrode movement attempt
       - ``attempt``: attempts required for successful movement
-    - ``electrode-attempt-fail``; single attempt to move liquid to target
-      electrode has failed::
-      - ``source``: electrode where liquid is moving **_from_**
-      - ``target``: electrode where liquid is moving **_to_**
-      - ``start``: **_start_** time for electrode movement attempt
-      - ``end``: **_end_** time for electrode movement attempt
+
+    * ``electrode-attempt-fail``; single attempt to move liquid to target
+      electrode has failed:
+
+      - ``source``: electrode where liquid is moving **from**
+      - ``target``: electrode where liquid is moving **to**
+      - ``start``: **start** time for electrode movement attempt
+      - ``end``: **end** time for electrode movement attempt
       - ``attempt``: attempts required for successful movement
-    - ``electrode-fail``; movement of liquid to electrode has failed::
-      - ``source``: electrode where liquid is moving **_from_**
-      - ``target``: electrode where liquid is moving **_to_**
-      - ``start``: **_start_** time for electrode movement attempt
-      - ``end``: **_end_** time for electrode movement attempt
+
+    * ``electrode-fail``; movement of liquid to electrode has failed:
+
+      - ``source``: electrode where liquid is moving **from**
+      - ``target``: electrode where liquid is moving **to**
+      - ``start``: **start** time for electrode movement attempt
+      - ``end``: **end** time for electrode movement attempt
       - ``attempt``: attempts made for electrode movement
-    - ``electrode-skip``; skip unreachable electrode::
-      - ``source``: electrode where liquid is moving **_from_**
-      - ``target``: electrode where liquid is moving **_to_**
-    - ``test-complete``; test has completed::
+
+    * ``electrode-skip``; skip unreachable electrode:
+
+      - ``source``: electrode where liquid is moving **from**
+      - ``target``: electrode where liquid is moving **to**
+
+    * ``test-complete``; test has completed:
+
       - ``success_route``: list of electrodes visited consecutively
       - ``failed_electrodes``: list of electrodes where movement failed
       - ``success_electrodes``: list of electrodes where movement succeeded
+      - ``__version__``: :py:mod:`dropbot_chip_qc` package version
+
+
+    Returns
+    -------
+    dict
+        Test summary including the same fields as the ``test-complete`` signal
+        above.
 
 
     .. versionchanged:: 0.3
