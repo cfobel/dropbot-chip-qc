@@ -61,6 +61,11 @@ def draw_results(svg_source, events, axes=None):
         patch_i.set_facecolor(dark_red)
 
     for patch_i in (result['channel_patches']
+                    .loc[df_events.loc[df_events.event == 'electrode-skip',
+                                       'target'].tolist()]):
+        patch_i.set_facecolor(dark_orange)
+
+    for patch_i in (result['channel_patches']
                     .loc[df_electrode_events.loc[df_electrode_events.event ==
                                                  'electrode-success', 'target']]):
         patch_i.set_facecolor(light_green)
@@ -106,8 +111,8 @@ def draw_results(svg_source, events, axes=None):
     handles, labels = axis.get_legend_handles_labels()
     axis.get_legend().remove()
     handles += [mpl.patches.Patch(facecolor=c, alpha=.4)
-                for c in (light_green, dark_red)]
-    labels += ['Passed electrode', 'Failed electrode']
+                for c in (light_green, dark_red, dark_orange)]
+    labels += ['Passed electrode', 'Failed electrode', 'Skipped electrode']
     axis.legend(handles=handles, labels=labels, handleheight=2, handlelength=2)
     return axes
 
@@ -115,11 +120,16 @@ def draw_results(svg_source, events, axes=None):
 def summarize_results(events, **kwargs):
     df_events = pd.DataFrame(events)
     test_info = df_events.loc[df_events.event == 'test-complete',
-                              ['__version__',
-                               'failed_electrodes']].iloc[-1].to_dict()
+                              ['__version__']].iloc[-1].to_dict()
     start_info = df_events.loc[df_events.event ==
                                'test-start'].dropna(axis=1).iloc[-1].to_dict()
 
+    bad_electrodes = {'%s_electrodes' % k:
+                      sorted(set(df_events.loc[df_events.event ==
+                                               'electrode-%s' % k,
+                                               'target'].astype(int)
+                                 .tolist())) for k in ('fail', 'skip')}
+    test_info.update(bad_electrodes)
     test_info.update({'chip_uuid': start_info['uuid']})
     test_info.update(kwargs)
     # Render DropBot system info using `dropbot.self_test` module functions.
@@ -144,7 +154,8 @@ def summarize_results(events, **kwargs):
 
 ## Results
 
-**Failed electrodes:** `{{ failed_electrodes }}`
+ - **Failed electrodes:** `{{ fail_electrodes }}`
+ - **Skipped electrodes:** `{{ skip_electrodes }}`
 {% if image_path %}
 ![]({{ image_path }})
 {% endif %}

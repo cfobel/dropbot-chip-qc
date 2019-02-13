@@ -69,11 +69,16 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     overwrite : bool, optional
         If ``True``, overwrite output files.  Otherwise, ask before
         overwriting.
+    svg_source : str or file-like
+        A file path, URI, or file-like object containing DropBot chip SVG
+        source.
+
 
     .. versionchanged:: 0.2
         Add ``video_dir`` keyword argument.
     .. versionchanged:: 0.3
-        Add ``output_dir`` argument and ``overwrite`` keyword argument.
+        Add ``output_dir`` argument; and ``overwrite`` and ``svg_source``
+        keyword arguments.
     .. versionchanged:: 0.4
         Write each test result a self-contained HTML file in the specified
         output directory.
@@ -179,7 +184,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                 loggers = {e: ft.partial(lambda event, sender, **kwargs:
                                          log_route_event(event, kwargs), e)
                            for e in ('electrode-success', 'electrode-fail',
-                                     'test-start', 'test-complete')}
+                                     'electrode-skip', 'test-start',
+                                     'test-complete')}
                 for event, logger in loggers.items():
                     signals.signal(event).connect(logger)
 
@@ -273,12 +279,15 @@ def _run_test(signals, proxy, G, way_points, start=None):
       - ``start``: **_start_** time for electrode movement attempt
       - ``end``: **_end_** time for electrode movement attempt
       - ``attempt``: attempts required for successful movement
-    - ``electrode-fail``:: movement of liquid to electrode has failed::
+    - ``electrode-fail``; movement of liquid to electrode has failed::
       - ``source``: electrode where liquid is moving **_from_**
       - ``target``: electrode where liquid is moving **_to_**
       - ``start``: **_start_** time for electrode movement attempt
       - ``end``: **_end_** time for electrode movement attempt
       - ``attempt``: attempts made for electrode movement
+    - ``electrode-skip``; skip unreachable electrode::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
     - ``test-complete``; test has completed::
       - ``success_route``: list of electrodes visited consecutively
       - ``failed_electrodes``: list of electrodes where movement failed
@@ -294,6 +303,12 @@ def _run_test(signals, proxy, G, way_points, start=None):
           re-routes
         - ``failed_nodes`` -> ``failed_electrodes``
         - ``success_nodes`` -> ``success_electrodes``
+    .. versionchanged:: 0.5
+        Send the ``electrode-skip`` signal.
+    .. versionchanged:: 0.5
+        Prune unreachable electrodes from test route (e.g., after liquid
+        movement to a bottleneck electrode has failed; cutting off the only
+        path to other electrodes on the test route).
     '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
@@ -327,8 +342,23 @@ def _run_test(signals, proxy, G, way_points, start=None):
 
         while remaining_route_i[0] not in G_i:
             remaining_route_i.pop(0)
-            remaining_route_i = (nx.shortest_path(G_i, source_i, remaining_route_i[0])
-                            + remaining_route_i[1:])
+            try:
+                remaining_route_i = (nx.shortest_path(G_i, source_i,
+                                                      remaining_route_i[0]) +
+                                     remaining_route_i[1:])
+            except (nx.NetworkXNoPath, nx.NodeNotFound) as exception:
+                if len(remaining_route_i) < 2:
+                    raise
+                elif remaining_route_i[0] in G_i:
+                    # Skip unreachable electrode.  This can happen, e.g., if a
+                    # failed electrode is identified and removed, cutting off
+                    # the only path to other electrodes on route.
+                    G_i.remove_node(remaining_route_i[0])
+                    signals.signal('electrode-skip')\
+                        .send('_run_test', source=source_i,
+                              target=remaining_route_i[0])
+                    logging.warning('Pruning unreachable electrode: `%s`',
+                                    remaining_route_i[0])
         target_i = remaining_route_i[0]
 
         start_time = time.time()
