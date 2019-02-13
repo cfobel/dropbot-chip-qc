@@ -1,5 +1,8 @@
+# -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import
 import argparse
+import datetime as dt
+import gzip
 import itertools as it
 import json
 import logging
@@ -21,8 +24,21 @@ import path_helpers as ph
 import trollius as asyncio
 import winsound
 
+from .. import __version__
 from ..connect import connect
 from ..video import chip_video_process, show_chip
+
+
+def _date_subs_dict(datetime_=None):
+    if datetime_ is None:
+        datetime_ = dt.datetime.utcnow()
+    return {'Y': datetime_.strftime('%Y'),
+            'm': datetime_.strftime('%m'),
+            'd': datetime_.strftime('%d'),
+            'H': datetime_.strftime('%H'),
+            'I': datetime_.strftime('%I'),
+            'M': datetime_.strftime('%M'),
+            'S': datetime_.strftime('%S')}
 
 
 def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
@@ -30,7 +46,8 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
     return QMessageBox.question(QMainWindow(), title, text, flags)
 
 
-def run_test(way_points, start_electrode, video_dir=None):
+def run_test(way_points, start_electrode, output_dir, video_dir=None,
+             overwrite=False, svg_source=None):
     '''
     Parameters
     ----------
@@ -41,14 +58,24 @@ def run_test(way_points, start_electrode, video_dir=None):
         Waypoint to treat as starting point.  If not the first waypoint in
         ``way_points``, the test route will "wrap around" until the
         ``start_electrode`` is reached again.
+    output_dir : str
+        Directory to write output files to.  May include ``'%%(uuid)s'`` as
+        placeholder for chip UUID, e.g., ``~/my_output_dir/%%(uuid)s-results``.
     video_dir : str, optional
         Directory within which to search for videos corresponding to the start
         time of the test.  If a related video is found, offer to move/rename
         the video with the same name and location as the JSON results file.
+    overwrite : bool, optional
+        If ``True``, overwrite output files.  Otherwise, ask before
+        overwriting.
 
     .. versionchanged:: 0.2
-        Add ``video_dir`` argument.
+        Add ``video_dir`` keyword argument.
+    .. versionchanged:: 0.3
+        Add ``output_dir`` argument and ``overwrite`` keyword argument.
     '''
+    output_dir = ph.path(output_dir)
+
     if video_dir is not None:
         video_dir = ph.path(video_dir)
 
@@ -62,11 +89,11 @@ def run_test(way_points, start_electrode, video_dir=None):
 
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
 
-    monitor_task, proxy, G = connect()
+    logging.info('Wait for connection to DropBot...')
+    monitor_task, proxy, G = connect(svg_source=svg_source)
     proxy.voltage = 115
 
-    def update_video(video, uuid, json_results_path):
-        json_results_path = ph.path(json_results_path)
+    def update_video(video, uuid):
         response = question('Attempt to set UUID in title of video file, '
                             '`%s`?' % video, title='Update video?')
         if response == QMessageBox.StandardButton.Yes:
@@ -79,13 +106,22 @@ def run_test(way_points, start_electrode, video_dir=None):
                     f.save()
                     logging.info('wrote UUID to video title: `%s`', video)
             except Exception:
-                logging.warning('Error setting video title.',
-                                exc_info=True)
-            output_video_path = (json_results_path.parent
-                                 .joinpath('%s.mp4' %
-                                           json_results_path.namebase))
-            ph.path(video).move(output_video_path)
-            logging.info('moved video to : `%s`', output_video_path)
+                logging.warning('Error setting video title.', exc_info=True)
+            # Substitute UUID into output directory path as necessary.
+            path_subs_dict = {'uuid': uuid}
+            path_subs_dict.update(_date_subs_dict())
+            output_dir_ = ph.path(output_dir %
+                                  path_subs_dict).expand().realpath()
+            output_dir_.makedirs_p()
+            output_path = output_dir_.joinpath('%s.mp4' % uuid)
+            if not output_path.exists() or overwrite or \
+                    (question('Output `%s` exists.  Overwrite?' % output_path,
+                              title='Overwrite?') ==
+                     QMessageBox.StandardButton.Yes):
+                if output_path.exists():
+                    output_path.remove()
+                ph.path(video).move(output_path)
+                logging.info('moved video to : `%s`', output_path)
 
     def on_chip_detected(sender, **kwargs):
         @ft.wraps(on_chip_detected)
@@ -112,16 +148,39 @@ def run_test(way_points, start_electrode, video_dir=None):
 
             @asyncio.coroutine
             def _run():
+                dropbot_events = []
+
+                def log_event(message):
+                    # Add UTC timestamp to each event.
+                    message['utc_time'] = dt.datetime.utcnow().isoformat()
+                    dropbot_events.append(message)
+
+                # Log DropBot events in memory.
+                proxy.signals.signal('sensitive-capacitances')\
+                    .connect(log_event)
+
+                # Log route events in memory.
+                def log_route_event(event, message):
+                    # Tag kwargs with route event name.
+                    message['event'] = event
+                    # Add chip and DropBot system info to `test-start` message.
+                    if event == 'test-start':
+                        message['uuid'] = uuid
+                    log_event(message)
+
+                loggers = {e: ft.partial(lambda event, sender, **kwargs:
+                                         log_route_event(event, kwargs), e)
+                           for e in ('electrode-success', 'electrode-fail',
+                                     'test-start', 'test-complete')}
+                for event, logger in loggers.items():
+                    signals.signal(event).connect(logger)
+
                 try:
                     start = time.time()
                     result = \
                         yield asyncio.From(_run_test(signals, proxy, G,
                                                      way_points,
                                                      start=start_electrode))
-                    output_path = '%s - qc results.json' % uuid
-                    with open(output_path, 'w') as output:
-                        json.dump(result, output, indent=4)
-                    logging.info('wrote test results: `%s`', output_path)
                     if video_dir:
                         # A video directory was provided.  Look for a video
                         # corresponding to the same timeline as the test.
@@ -132,12 +191,47 @@ def run_test(way_points, start_electrode, video_dir=None):
                                          if abs(p.ctime - start) < 60),
                                         key=lambda x: -x.ctime)
                         if videos:
-                            video = videos[-1]
-                            loop.call_soon_threadsafe(update_video, video,
-                                                      uuid, output_path)
+                            loop.call_soon_threadsafe(update_video, videos[-1],
+                                                      uuid)
                 except nx.NetworkXNoPath as exception:
+                    result = {}
                     logging.error('QC test failed: `%s`', exception,
                                   exc_info=True)
+
+                def write_results():
+                    # Substitute UUID into output directory path as necessary.
+                    path_subs_dict = {'uuid': uuid}
+                    path_subs_dict.update(_date_subs_dict())
+                    output_dir_ = ph.path(output_dir %
+                                          path_subs_dict).expand().realpath()
+                    output_dir_.makedirs_p()
+                    output_path = output_dir_.joinpath('%s - qc results.json' %
+                                                       uuid)
+                    if not output_path.exists() or overwrite or \
+                            (question('Output `%s` exists.  Overwrite?' %
+                                     output_path, title='Overwrite?') ==
+                             QMessageBox.StandardButton.Yes):
+                        with open(output_path, 'w') as output:
+                            json.dump(result, output, indent=4)
+                        logging.info('wrote test results: `%s`', output_path)
+
+                    # Write saved capacitances to file.
+                    output_path = output_dir_.joinpath('%s - DropBot '
+                                                       'events.ndjson.gz' %
+                                                       uuid)
+                    if not output_path.exists() or overwrite or \
+                            (question('Output `%s` exists.  Overwrite?' %
+                                     output_path, title='Overwrite?') ==
+                             QMessageBox.StandardButton.Yes):
+                        with gzip.GzipFile(output_path, 'w',
+                                           compresslevel=2) as output:
+                            for record in dropbot_events:
+                                json.dump(record, output)
+                                output.write('\n')
+                        logging.info('wrote events log to: `%s`', output_path)
+
+                loop.call_soon_threadsafe(write_results)
+
                 signals.signal('chip-detected').connect(on_chip_detected)
 
             qc_task = cancellable(_run)
@@ -163,6 +257,51 @@ def run_test(way_points, start_electrode, video_dir=None):
 
 @asyncio.coroutine
 def _run_test(signals, proxy, G, way_points, start=None):
+    '''
+    Signals
+    -------
+
+    The following signals are sent during the test::
+    - ``test-start``; test has started::
+      - ``route``: planned list of electrodes to visit consecutively
+      - ``way_points``: contiguous list of waypoints, where test is routed as
+        the shortest path between each consecutive pair of waypoints
+    - ``electrode-success``; movement of liquid to electrode has
+      completed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts required for successful movement
+    - ``electrode-attempt-fail``; single attempt to move liquid to target
+      electrode has failed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts required for successful movement
+    - ``electrode-fail``:: movement of liquid to electrode has failed::
+      - ``source``: electrode where liquid is moving **_from_**
+      - ``target``: electrode where liquid is moving **_to_**
+      - ``start``: **_start_** time for electrode movement attempt
+      - ``end``: **_end_** time for electrode movement attempt
+      - ``attempt``: attempts made for electrode movement
+    - ``test-complete``; test has completed::
+      - ``success_route``: list of electrodes visited consecutively
+      - ``failed_electrodes``: list of electrodes where movement failed
+      - ``success_electrodes``: list of electrodes where movement succeeded
+
+
+    .. versionchanged:: 0.3
+        Send the following signals: ``electrode-success``,
+        ``electrode-attempt-fail``, ``electrode-fail``, ``test-complete``.
+    .. versionchanged:: 0.3
+        Rename results dictionary keys::
+        - ``route`` -> ``success_route``, i.e., actual route taken including
+          re-routes
+        - ``failed_nodes`` -> ``failed_electrodes``
+        - ``success_nodes`` -> ``success_electrodes``
+    '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
     G_i.remove_node(89)
@@ -178,22 +317,26 @@ def _run_test(signals, proxy, G, way_points, start=None):
                             db.dispense
                             .window(way_points_i, 2)])) + [way_points_i[-1]]
 
-    test_route_i = route[:]
-    success_nodes = set()
+    signals.signal('test-start').send('_run_test', route=route,
+                                      way_points=way_points_i)
 
-    while len(test_route_i) > 1:
+    remaining_route_i = route[:]
+    success_route = route[:1]
+
+    while len(remaining_route_i) > 1:
         # Attempt to move liquid from first electrode to second electrode.
         # If liquid movement fails:
         #  * Alert operator (e.g., log notification, alert sound, etc.)
         #  * Attempt to "route around" failed electrode
-        source_i = test_route_i.pop(0)
+        source_i = remaining_route_i.pop(0)
 
-        while test_route_i[0] not in G_i:
-            test_route_i.pop(0)
-            test_route_i = (nx.shortest_path(G_i, source_i, test_route_i[0])
-                            + test_route_i[1:])
-        target_i = test_route_i[0]
+        while remaining_route_i[0] not in G_i:
+            remaining_route_i.pop(0)
+            remaining_route_i = (nx.shortest_path(G_i, source_i, remaining_route_i[0])
+                            + remaining_route_i[1:])
+        target_i = remaining_route_i[0]
 
+        start_time = time.time()
         for i in range(4):
             try:
                 yield asyncio.From(db.dispense
@@ -201,32 +344,49 @@ def _run_test(signals, proxy, G, way_points, start=None):
                                                 wrapper=ft.partial(asyncio
                                                                    .wait_for,
                                                                    timeout=2)))
-                success_nodes.add(target_i)
+                success_route.append(target_i)
+                signals.signal('electrode-success').send('_run_test',
+                                                         source=source_i,
+                                                         target=target_i,
+                                                         start=start_time,
+                                                         end=time.time(),
+                                                         attempt=i + 1)
                 break
             except db.dispense.MoveTimeout as exception:
                 logging.warning('Timed out moving liquid `%s`->`%s`' %
                                 tuple(exception.route_i))
                 db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=[source]))
+                signals.signal('electrode-attempt-fail')\
+                    .send('_run_test', source=source_i, target=target_i,
+                          start=start_time, end=time.time(), attempt=i + 1)
                 time.sleep(1.)
         else:
             # Play system "beep" sound to notify user that electrode failed.
             winsound.MessageBeep()
             logging.error('Failed to move liquid to electrode `%s`.', target_i)
+            signals.signal('electrode-fail').send('_run_test',
+                                                  source=source_i,
+                                                  target=target_i,
+                                                  start=start_time,
+                                                  end=time.time(),
+                                                  attempt=i + 1)
             # Remove failed electrode adjacency graph.
             G_i.remove_node(target_i)
-            test_route_i = [source_i] + test_route_i
+            remaining_route_i = [source_i] + remaining_route_i
             logging.warning('Attempting to reroute around electrode `%s`.',
                             target_i)
         yield asyncio.From(asyncio.sleep(0))
 
-    db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=test_route_i))
+    db.dispense.apply_duty_cycles(proxy, pd.Series(1, index=remaining_route_i))
     # Play system "beep" sound to notify user that electrode failed.
     winsound.MessageBeep()
-    result = {'route': route, 'failed_nodes': sorted(set(route) -
-                                                     success_nodes),
-              'success_nodes': sorted(success_nodes)}
+    result = {'success_route': success_route,
+              'failed_electrodes': sorted(set(route) - set(success_route)),
+              'success_electrodes': sorted(set(success_route)),
+              '__version__': __version__}
     logging.info('Completed - failed electrodes: `%s`' %
-                 result['failed_nodes'])
+                 result['failed_electrodes'])
+    signals.signal('test-complete').send('_run_test', **result)
     raise asyncio.Return(result)
 
 
@@ -235,10 +395,24 @@ def parse_args(args=None):
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
+    parser.add_argument('-d', '--output-dir', type=ph.path,
+                        default=ph.path('.'), help="Output directory "
+                        "(default='%(default)s').")
     parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
-                        'for recorded videos matching start time of test.')
+                        ' for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
-    parser.add_argument('way_points', help='Test waypoints as JSON list.')
+    parser.add_argument('-f', '--force', action='store_true', help='Force '
+                        'overwrite of existing files.')
+    parser.add_argument('-S', '--svg-path', type=ph.path,
+                        default=dropbot.DATA_DIR.joinpath('SCI-BOTS 90-pin '
+                                                          'array',
+                                                          'device.svg'),
+                        help="SVG device file (default='%(default)s')")
+    default_waypoints = [110, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26,
+                         9, 0, 119]
+    parser.add_argument('way_points', help='Test waypoints as JSON list '
+                        '(default="%(default)s").', nargs='?',
+                        default=str(default_waypoints))
 
     args = parser.parse_args(args)
 
@@ -255,4 +429,5 @@ if __name__ == '__main__':
                         format="[%(asctime)s] %(levelname)s: %(message)s")
     app = QApplication(sys.argv)
 
-    run_test(args.way_points, args.start, args.video_dir)
+    run_test(args.way_points, args.start, args.output_dir, args.video_dir,
+             overwrite=args.force, svg_source=args.svg_path)
