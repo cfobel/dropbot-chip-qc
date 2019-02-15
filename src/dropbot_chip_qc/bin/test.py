@@ -3,8 +3,10 @@ from __future__ import print_function, absolute_import
 import argparse
 import datetime as dt
 import itertools as it
+import io
 import json
 import logging
+import pkgutil
 import sys
 import threading
 import time
@@ -450,6 +452,10 @@ def _run_test(signals, proxy, G, way_points, start=None):
 def parse_args(args=None):
     if args is None:
         args = sys.argv[1:]
+    DEFAULT_DEVICE_NAME = 'SCI-BOTS 90-pin array'
+    DEFAULT_DEVICE_SOURCE = \
+        pkgutil.get_data('dropbot', 'static/SCI-BOTS 90-pin array/device.svg')
+
     parser = argparse.ArgumentParser(description='DropBot chip quality '
                                      'control')
     parser.add_argument('-d', '--output-dir', type=ph.path,
@@ -463,10 +469,8 @@ def parse_args(args=None):
     parser.add_argument('-f', '--force', action='store_true', help='Force '
                         'overwrite of existing files.')
     parser.add_argument('-S', '--svg-path', type=ph.path,
-                        default=dropbot.DATA_DIR.joinpath('SCI-BOTS 90-pin '
-                                                          'array',
-                                                          'device.svg'),
-                        help="SVG device file (default='%(default)s')")
+                        default=io.BytesIO(DEFAULT_DEVICE_SOURCE),
+                        help="SVG device file (default='%s')" % DEFAULT_DEVICE_NAME)
     default_waypoints = [110, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26,
                          9, 0, 119]
     parser.add_argument('way_points', help='Test waypoints as JSON list '
