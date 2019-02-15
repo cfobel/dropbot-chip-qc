@@ -25,7 +25,7 @@ import trollius as asyncio
 
 def load_device(svg_source=None):
     '''
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 1.6.0
         Force downcast of `pint` millimeter quantities for `x` and `y`
         coordinates to `float`.
     '''

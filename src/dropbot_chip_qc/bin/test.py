@@ -91,7 +91,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     .. versionchanged:: 0.4
         Write each test result a self-contained HTML file in the specified
         output directory.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 1.6.0
         Add ``launch`` keyword argument.
     '''
     output_dir = ph.path(output_dir)
