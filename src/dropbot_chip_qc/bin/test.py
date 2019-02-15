@@ -48,7 +48,7 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 
 def run_test(way_points, start_electrode, output_dir, video_dir=None,
-             overwrite=False, svg_source=None):
+             overwrite=False, svg_source=None, launch=False):
     '''
     Parameters
     ----------
@@ -74,9 +74,11 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     overwrite : bool, optional
         If ``True``, overwrite output files.  Otherwise, ask before
         overwriting.
-    svg_source : str or file-like
+    svg_source : str or file-like, optional
         A file path, URI, or file-like object containing DropBot chip SVG
         source.
+    launch : bool, optional
+        Launch output path after creation (default: `False`).
 
 
     .. versionchanged:: 0.2
@@ -87,6 +89,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     .. versionchanged:: 0.4
         Write each test result a self-contained HTML file in the specified
         output directory.
+    .. versionchanged:: X.X.X
+        Add ``launch`` keyword argument.
     '''
     output_dir = ph.path(output_dir)
 
@@ -233,6 +237,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                         render_summary(dropbot_events, output_path,
                                        svg_source=svg_source)
                         logging.info('wrote events log to: `%s`', output_path)
+                        if launch:
+                            # Launch result using default system viewer.
+                            output_path.launch()
 
                 loop.call_soon_threadsafe(write_results)
 
@@ -451,6 +458,8 @@ def parse_args(args=None):
     parser.add_argument('--video-dir', type=ph.path, help='Directory to search'
                         ' for recorded videos matching start time of test.')
     parser.add_argument('-s', '--start', type=int, help='Start electrode')
+    parser.add_argument('--launch', action='store_true', help='Launch output '
+                        'path after creation.')
     parser.add_argument('-f', '--force', action='store_true', help='Force '
                         'overwrite of existing files.')
     parser.add_argument('-S', '--svg-path', type=ph.path,
@@ -480,7 +489,8 @@ def main():
     app = QApplication(sys.argv)
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
-             overwrite=args.force, svg_source=args.svg_path)
+             overwrite=args.force, svg_source=args.svg_path,
+             launch=args.launch)
 
 
 if __name__ == '__main__':
