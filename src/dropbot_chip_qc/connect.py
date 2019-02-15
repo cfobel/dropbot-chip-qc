@@ -24,6 +24,11 @@ import trollius as asyncio
 
 
 def load_device(svg_source=None):
+    '''
+    .. versionchanged:: X.X.X
+        Force downcast of `pint` millimeter quantities for `x` and `y`
+        coordinates to `float`.
+    '''
     if svg_source is None:
         # Load Sci-Bots device file and extract neighbouring channels info.
         svg_data = pkgutil.get_data('dropbot',
@@ -49,7 +54,8 @@ def load_device(svg_source=None):
 
     df_shapes = svg_model.svg_shapes_to_df(svg_source)
     df_shapes.loc[:, ['x', 'y']] = (df_shapes.loc[:, ['x', 'y']].values *
-                                    ureg.pixel / pixel_density).to('mm')
+                                    ureg.pixel /
+                                    pixel_density).to('mm').magnitude
     df_shape_infos = sdf.get_shape_infos(df_shapes, 'id')
 
     electrodes_by_channel = \
