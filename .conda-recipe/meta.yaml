@@ -60,6 +60,7 @@ test:
     - dropbot_chip_qc.video
     - dropbot_chip_qc.bin.test
     - dropbot_chip_qc.bin.video
+    - qrcode.image.pil
 
 about:
   home: https://github.com/sci-bots/{{ PKG_NAME }}
