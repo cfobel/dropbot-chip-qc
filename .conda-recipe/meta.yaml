@@ -1,4 +1,4 @@
-{% if GIT_DESCRIBE_NUMBER > '0' %}
+{% if GIT_DESCRIBE_NUMBER %}
 {% set GIT_VERSION = GIT_DESCRIBE_TAG[1:] + '.post' + GIT_DESCRIBE_NUMBER %}
 {% else %}
 {% set GIT_VERSION = GIT_DESCRIBE_TAG[1:] %}
@@ -13,27 +13,54 @@ package:
   version: {{ GIT_VERSION }}
 
 build:
-  noarch: python
   script: python setup.py install --single-version-externally-managed --record record.txt
+  entry_points:
+    - dropbot-chip-qc = dropbot_chip_qc.bin.test:main
+  skip: true  # [not win]
 
 requirements:
   build:
+    - asyncio-helpers
     - blinker
+    - dropbot >=2.1.1
+    - functools32
+    - lxml
+    - mutagen
+    - networkx
     - opencv
     - pandas
+    - pillow
+    - pyside2
+    - pywin32
     - pyzbar
+    - qrcode
     - trollius
 
   run:
+    - asyncio-helpers
     - blinker
+    - dropbot >=2.1.1
+    - functools32
+    - lxml
+    - mutagen
+    - networkx
     - opencv
     - pandas
+    - pillow
+    - pyside2
+    - pywin32
     - pyzbar
+    - qrcode
     - trollius
 
 test:
   imports:
     - dropbot_chip_qc
+    - dropbot_chip_qc.async
+    - dropbot_chip_qc.video
+    - dropbot_chip_qc.bin.test
+    - dropbot_chip_qc.bin.video
+    - qrcode.image.pil
 
 about:
   home: https://github.com/sci-bots/{{ PKG_NAME }}
