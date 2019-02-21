@@ -53,6 +53,22 @@ device_corners.loc[1, :] = np.roll(device_corners.loc[1].values, -4)
 device_corners /= 640, 480
 
 
+class FPS(object):
+    def __init__(self):
+        self._times = []
+
+    def update(self):
+        self._times.append(time.time())
+        self._times = self._times[-10:]
+
+    @property
+    def framerate(self):
+        if len(self._times) > 1:
+            return 1 / np.diff(self._times).mean()
+        else:
+            return 0.
+
+
 def chip_video_process(signals, width=1920, height=1080, device_id=0):
     '''
     Continuously monitor webcam feed for DMF chip.
@@ -145,6 +161,7 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
 
     # Font used for UUID label.
     font = cv2.FONT_HERSHEY_SIMPLEX
+    fps = FPS()
 
     while frame_captured and not exit_requested.is_set():
         # Find barcodes and QR codes
@@ -231,9 +248,8 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
                                            raw_frame=frame, warped=warped,
                                            fps=fps, chip_uuid=chip_uuid)
         frame_captured, frame = capture.read()
-        if frame_captured:
-            frame_count += 1
-            fps = frame_count / (time.time() - start)
+        fps.update()
+        print('\r%-50s' % ('FPS: %.1f' % fps.framerate), end='')
 
     # When everything done, release the capture
     capture.release()
