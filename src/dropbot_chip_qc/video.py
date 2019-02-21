@@ -108,6 +108,15 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
         OpenCV video source id (starts at zero).
     '''
     capture = cv2.VideoCapture(device_id)
+
+    # Set format to MJPG (instead of YUY2) to _dramatically_ improve frame
+    # rate.  For example, using Logitech C920 camera, frame rate increases from
+    # 10 FPS to 30 FPS (not including QR code detection, warping, etc.).
+    #
+    # See: https://github.com/opencv/opencv/issues/9084#issuecomment-324477425
+    fourcc_int = np.fromstring(bytes('MJPG'), dtype='uint8').view('uint32')[0]
+    capture.set(cv2.CAP_PROP_FOURCC, fourcc_int)
+
     capture.set(cv2.CAP_PROP_AUTOFOCUS, True)
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
