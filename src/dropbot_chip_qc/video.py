@@ -256,7 +256,7 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
     signals.signal('closed').send('chip_video_process')
 
 
-def main(signals=None):
+def main(signals=None, resolution=(1280, 720), device_id=0):
     '''
     Launch chip webcam monitor thread and view window.
     '''
@@ -264,7 +264,8 @@ def main(signals=None):
         signals = blinker.Namespace()
 
     thread = threading.Thread(target=chip_video_process,
-                              args=(signals, 1280, 720, 0))
+                              args=(signals, resolution[0], resolution[1],
+                                    device_id))
     thread.start()
 
     loop = asyncio.get_event_loop()

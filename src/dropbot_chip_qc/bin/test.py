@@ -30,6 +30,7 @@ from .. import __version__
 from ..connect import connect
 from ..render import render_summary
 from ..video import chip_video_process, show_chip
+from .video import VIDEO_PARSER
 
 
 def _date_subs_dict(datetime_=None):
@@ -50,7 +51,8 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 
 def run_test(way_points, start_electrode, output_dir, video_dir=None,
-             overwrite=False, svg_source=None, launch=False):
+             overwrite=False, svg_source=None, launch=False,
+             resolution=(1280, 720), device_id=0):
     '''
     Parameters
     ----------
@@ -81,6 +83,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         source.
     launch : bool, optional
         Launch output path after creation (default: `False`).
+    resolution : tuple[int, int], optional
+        Target video resolution (may be ignored if not supported by device).
+    device_id : int, optional
+        OpenCV video capture device identifier (default=0).
 
 
     .. versionchanged:: 0.2
@@ -93,6 +99,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         output directory.
     .. versionchanged:: 1.6.0
         Add ``launch`` keyword argument.
+    .. versionchanged:: X.X.X
+        Add ``resolution`` and ``device_id`` keyword arguments.
     '''
     output_dir = ph.path(output_dir)
 
@@ -257,7 +265,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     signals.signal('chip-detected').connect(on_chip_detected)
 
     thread = threading.Thread(target=chip_video_process,
-                              args=(signals, 1280, 720, 0))
+                              args=(signals, resolution[0], resolution[1],
+                                    device_id))
     thread.start()
 
     # Launch window to view chip video.
@@ -457,7 +466,7 @@ def parse_args(args=None):
         pkgutil.get_data('dropbot', 'static/SCI-BOTS 90-pin array/device.svg')
 
     parser = argparse.ArgumentParser(description='DropBot chip quality '
-                                     'control')
+                                     'control', parents=[VIDEO_PARSER])
     parser.add_argument('-d', '--output-dir', type=ph.path,
                         default=ph.path('.'), help="Output directory "
                         "(default='%(default)s').")
@@ -494,7 +503,8 @@ def main():
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
              overwrite=args.force, svg_source=args.svg_path,
-             launch=args.launch)
+             launch=args.launch, device_id=args.video_device,
+             resolution=args.resolution)
 
 
 if __name__ == '__main__':
