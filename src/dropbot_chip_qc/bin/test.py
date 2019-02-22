@@ -99,7 +99,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         output directory.
     .. versionchanged:: 1.6.0
         Add ``launch`` keyword argument.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.7.0
         Add ``resolution`` and ``device_id`` keyword arguments.
     '''
     output_dir = ph.path(output_dir)
