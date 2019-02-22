@@ -50,17 +50,24 @@ def show_chip(signals, title='DMF chip'):
 
     See also
     --------
-    read_frame(), dropbot_chip_qc.video.chip_video_process()
+    dropbot_chip_qc.video.chip_video_process()
     '''
     print('Press "q" to quit')
 
+    loop = asyncio.get_event_loop()
+    frame_ready = asyncio.Event()
+
+    def on_frame_ready(sender, **message):
+        frame_ready.record = message
+        loop.call_soon_threadsafe(frame_ready.set)
+
+    signals.signal('frame-ready').connect(on_frame_ready)
+
     while True:
         try:
-            record = yield asyncio.wait_for(read_frame(signals), .01)
-            frame = record['frame']
-            cv2.imshow(title, frame)
+            yield asyncio.wait_for(frame_ready.wait(), .01)
+            cv2.imshow(title, frame_ready.record['frame'])
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         except asyncio.TimeoutError:
             continue
-    cv2.destroyAllWindows()
