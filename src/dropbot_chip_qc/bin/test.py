@@ -459,6 +459,10 @@ def _run_test(signals, proxy, G, way_points, start=None):
 
 
 def parse_args(args=None):
+    '''
+    .. versionchanged:: 0.7.1
+        Fix ``resolution`` argument handling.
+    '''
     if args is None:
         args = sys.argv[1:]
     DEFAULT_DEVICE_NAME = 'SCI-BOTS 90-pin array'
@@ -488,6 +492,7 @@ def parse_args(args=None):
 
     args = parser.parse_args(args)
 
+    args.resolution = tuple(map(int, args.resolution.split('x')))
     args.way_points = json.loads(args.way_points)
 
     if args.start is None:
