@@ -249,7 +249,6 @@ def chip_video_process(signals, width=1920, height=1080, device_id=0):
                                            fps=fps, chip_uuid=chip_uuid)
         frame_captured, frame = capture.read()
         fps.update()
-        print('\r%-50s' % ('FPS: %.1f' % fps.framerate), end='')
 
     # When everything done, release the capture
     capture.release()
