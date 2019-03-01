@@ -192,11 +192,10 @@ def _run_test(signals, proxy, G, way_points, start=None,
                             target_i)
         yield asyncio.From(asyncio.sleep(0))
 
-    yield asyncio.From(db.move.actuate_channels(proxy, [source]))
-
     # Restore original capacitance update interval.
     proxy.update_state(capacitance_update_interval_ms=init_state
                        .capacitance_update_interval_ms)
+    proxy.turn_off_all_channels()
 
     # Play system "beep" sound to notify user that electrode failed.
     winsound.MessageBeep()

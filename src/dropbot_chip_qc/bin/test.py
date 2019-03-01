@@ -25,6 +25,7 @@ from ..connect import connect
 from ..render import render_summary
 from ..video import chip_video_process, show_chip
 from ..single_drop import _run_test as _single_run_test
+from ..multi_sensing import _run_test as _multi_run_test
 from .video import VIDEO_PARSER
 
 
@@ -47,7 +48,7 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 def run_test(way_points, start_electrode, output_dir, video_dir=None,
              overwrite=False, svg_source=None, launch=False,
-             resolution=(1280, 720), device_id=0, _run_test=_single_run_test):
+             resolution=(1280, 720), device_id=0, multi_sensing=False):
     '''
     Parameters
     ----------
@@ -82,6 +83,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Target video resolution (may be ignored if not supported by device).
     device_id : int, optional
         OpenCV video capture device identifier (default=0).
+    multi_sensing : bool, optional
+        If `True`, run multi-sensing test.  Otherwise, run single-drop test
+        (default: `False`).
 
 
     .. versionchanged:: 0.2
@@ -96,6 +100,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``launch`` keyword argument.
     .. versionchanged:: 0.7.0
         Add ``resolution`` and ``device_id`` keyword arguments.
+    .. versionchanged:: X.X.X
+        Add ``multi_sensing`` keyword argument.
     '''
     output_dir = ph.path(output_dir)
 
@@ -187,6 +193,17 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                                               db.self_test.test_i2c(proxy)}
                     log_event(message)
 
+                if multi_sensing:
+                    # Log multi-sensing capacitance events (in memory).
+                    proxy.signals.signal('sensitive-capacitances')\
+                        .connect(log_event)
+
+                    # Use multi-sensing test implementation.
+                    _run_test = _multi_run_test
+                else:
+                    # Use single-drop test implementation.
+                    _run_test = _single_run_test
+
                 loggers = {e: ft.partial(lambda event, sender, **kwargs:
                                          log_route_event(event, kwargs), e)
                            for e in ('electrode-success', 'electrode-fail',
@@ -268,6 +285,8 @@ def parse_args(args=None):
     '''
     .. versionchanged:: 0.7.1
         Fix ``resolution`` argument handling.
+    .. versionchanged:: X.X.X
+        Add ``multi-sensing`` (``-M``) argument.
     '''
     if args is None:
         args = sys.argv[1:]
@@ -287,6 +306,9 @@ def parse_args(args=None):
                         'path after creation.')
     parser.add_argument('-f', '--force', action='store_true', help='Force '
                         'overwrite of existing files.')
+    parser.add_argument('-M', '--multi-sensing', action='store_true',
+                        help='Use multi-sensing test (requires '
+                        '`dropbot>=2.2.0`).')
     parser.add_argument('-S', '--svg-path', type=ph.path,
                         default=io.BytesIO(DEFAULT_DEVICE_SOURCE),
                         help="SVG device file (default='%s')" % DEFAULT_DEVICE_NAME)
@@ -315,7 +337,8 @@ def main():
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
              overwrite=args.force, svg_source=args.svg_path,
              launch=args.launch, device_id=args.video_device,
-             resolution=args.resolution)
+             resolution=args.resolution,
+             multi_sensing=args.multi_sensing)
 
 
 if __name__ == '__main__':
