@@ -100,7 +100,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``launch`` keyword argument.
     .. versionchanged:: 0.7.0
         Add ``resolution`` and ``device_id`` keyword arguments.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.8.0
         Add ``multi_sensing`` keyword argument.
     '''
     output_dir = ph.path(output_dir)
@@ -285,7 +285,7 @@ def parse_args(args=None):
     '''
     .. versionchanged:: 0.7.1
         Fix ``resolution`` argument handling.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.8.0
         Add ``multi-sensing`` (``-M``) argument.
     '''
     if args is None:
