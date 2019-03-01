@@ -22,7 +22,7 @@ requirements:
   build:
     - asyncio-helpers
     - blinker
-    - dropbot >=2.1.1
+    - dropbot >=1.71.0,<2.0.0|>=2.2.0
     - functools32
     - lxml
     - mutagen
@@ -39,7 +39,7 @@ requirements:
   run:
     - asyncio-helpers
     - blinker
-    - dropbot >=2.1.1
+    - dropbot >=1.71.0,<2.0.0|>=2.2.0
     - functools32
     - lxml
     - mutagen
