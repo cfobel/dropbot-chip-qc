@@ -39,6 +39,9 @@ def connect(svg_source=None):
         numbers, along with detailed chip design info parsed from SVG file.
     .. versionchanged:: 0.9.0
         Attach ``proxy`` attribute to monitor task to DropBot handle.
+    .. versionchanged:: 0.9.0
+        Attach ``signals`` attribute to monitor task to expose signals
+        namespace to calling code.
     '''
     signals = blinker.Namespace()
 
@@ -63,7 +66,7 @@ def connect(svg_source=None):
         proxy.enable_events()
 
         proxy.update_state(hv_output_enabled=True, hv_output_selected=True,
-                        voltage=100, frequency=10e3)
+                           voltage=100, frequency=10e3)
 
         # Disable channels in contact with copper tape.
         disabled_channels_mask_i = proxy.disabled_channels_mask
