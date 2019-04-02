@@ -121,7 +121,8 @@ def summarize_results(events, **kwargs):
     '''
     .. versionchanged:: X.X.X
         Read software versions from ``test-start`` instead of
-        ``test-complete``.
+        ``test-complete``.  Add ``shorts_detected`` item to render context
+        dictionary.
     '''
     test_info = {}
     start_info = [e for e in events if e['event'] == 'test-start'][0]
@@ -133,6 +134,10 @@ def summarize_results(events, **kwargs):
     test_info.update({'chip_uuid': start_info['uuid']})
     for k in ('dropbot', 'dropbot_chip_qc'):
         test_info['%s_version' % k] = start_info['%s.__version__' % k]
+    test_info['shorts_detected'] = sorted(set(c for e in events
+                                              if e['event'] ==
+                                              'shorts-detected'
+                                              for c in e['values']))
     test_info.update(kwargs)
     # Render DropBot system info using `dropbot.self_test` module functions.
     test_info.update({'dropbot':
@@ -157,6 +162,9 @@ def summarize_results(events, **kwargs):
 
 ## Results
 
+{% if shorts_detected %}
+ - **Shorted channels:** `{{ shorts_detected }}`
+{%- endif %}
  - **Failed electrodes:** `{{ fail_electrodes }}`
  - **Skipped electrodes:** `{{ skip_electrodes }}`
 {% if image_path %}
