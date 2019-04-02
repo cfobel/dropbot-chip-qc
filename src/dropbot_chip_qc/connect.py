@@ -41,7 +41,8 @@ def connect(svg_source=None):
         Attach ``proxy`` attribute to monitor task to DropBot handle.
     .. versionchanged:: 0.9.0
         Attach ``signals`` attribute to monitor task to expose signals
-        namespace to calling code.
+        namespace to calling code.  Dump ``shorts-detected`` messages to
+        ``stdout``.
     '''
     signals = blinker.Namespace()
 
@@ -94,6 +95,7 @@ def connect(svg_source=None):
         signals.signal('chip-inserted').connect(dump, weak=False)
         signals.signal('connected').connect(on_connected, weak=False)
         signals.signal('disconnected').connect(on_disconnected, weak=False)
+        signals.signal('shorts-detected').connect(dump, weak=False)
         signals.signal('version-mismatch').connect(ignore, weak=False)
 
         monitor_task = cancellable(db.monitor.monitor)
