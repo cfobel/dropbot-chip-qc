@@ -118,19 +118,21 @@ def draw_results(svg_source, events, axes=None):
 
 
 def summarize_results(events, **kwargs):
-    df_events = pd.DataFrame(events)
-    test_info = df_events.loc[df_events.event == 'test-complete',
-                              ['__version__']].iloc[-1].to_dict()
-    start_info = df_events.loc[df_events.event ==
-                               'test-start'].dropna(axis=1).iloc[-1].to_dict()
-
+    '''
+    .. versionchanged:: X.X.X
+        Read software versions from ``test-start`` instead of
+        ``test-complete``.
+    '''
+    test_info = {}
+    start_info = [e for e in events if e['event'] == 'test-start'][0]
     bad_electrodes = {'%s_electrodes' % k:
-                      sorted(set(df_events.loc[df_events.event ==
-                                               'electrode-%s' % k,
-                                               'target'].astype(int)
-                                 .tolist())) for k in ('fail', 'skip')}
+                      sorted(set(int(e['target']) for e in events
+                                 if e['event'] == 'electrode-%s' % k))
+                      for k in ('fail', 'skip')}
     test_info.update(bad_electrodes)
     test_info.update({'chip_uuid': start_info['uuid']})
+    for k in ('dropbot', 'dropbot_chip_qc'):
+        test_info['%s_version' % k] = start_info['%s.__version__' % k]
     test_info.update(kwargs)
     # Render DropBot system info using `dropbot.self_test` module functions.
     test_info.update({'dropbot':
@@ -150,7 +152,8 @@ def summarize_results(events, **kwargs):
 - **Chip UUID:** `{{ chip_uuid }}`
 {% if qr_uuid_path %}
   ![]({{ qr_uuid_path }}){% endif %}
-- **`dropbot-chip-qc` version:** `{{ __version__ }}`
+- **`dropbot` version:** `{{ dropbot_version }}`
+- **`dropbot-chip-qc` version:** `{{ dropbot_chip_qc_version }}`
 
 ## Results
 

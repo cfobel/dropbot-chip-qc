@@ -73,7 +73,6 @@ def _run_test(signals, proxy, G, way_points, start=None,
       - ``success_route``: list of electrodes visited consecutively
       - ``failed_electrodes``: list of electrodes where movement failed
       - ``success_electrodes``: list of electrodes where movement succeeded
-      - ``__version__``: :py:mod:`dropbot_chip_qc` package version
 
 
     Returns

@@ -28,6 +28,9 @@ from ..video import chip_video_process, show_chip
 from ..single_drop import _run_test as _single_run_test
 from ..multi_sensing import _run_test as _multi_run_test
 from .video import VIDEO_PARSER
+from .._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
 
 
 def _date_subs_dict(datetime_=None):
@@ -193,9 +196,12 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                 def log_route_event(event, message):
                     # Tag kwargs with route event name.
                     message['event'] = event
-                    # Add chip and DropBot system info to `test-start` message.
+                    # Add chip, DropBot, and version info to `test-start`
+                    # message.
                     if event == 'test-start':
                         message['uuid'] = uuid
+                        message['dropbot.__version__'] = db.__version__
+                        message['dropbot_chip_qc.__version__'] = __version__
                         message['dropbot'] = {'system_info':
                                               db.self_test.system_info(proxy),
                                               'i2c_scan':
