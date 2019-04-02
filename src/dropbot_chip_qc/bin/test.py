@@ -16,7 +16,6 @@ from PySide2.QtWidgets import QMessageBox, QMainWindow, QApplication
 import blinker
 import dropbot as db
 import dropbot.self_test
-import functools as ft
 import lxml.etree
 import mutagen
 import networkx as nx
@@ -108,6 +107,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Update to support new return type from `connect()`, use ``proxy``
         attribute of ``monitor_task``, and ``channels_graph`` attribute of
         ``proxy``.
+    .. versionchanged:: X.X.X
+        Explicitly execute a shorts detection test at the start of a chip test.
     '''
     output_dir = ph.path(output_dir)
 
@@ -222,6 +223,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                                      'test-complete')}
                 for event, logger in loggers.items():
                     signals.signal(event).connect(logger)
+
+                # Explicitly execute a shorts detection test.
+                proxy.detect_shorts()
 
                 try:
                     start = time.time()
