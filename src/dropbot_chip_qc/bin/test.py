@@ -201,6 +201,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                                               db.self_test.test_i2c(proxy)}
                     log_event(message)
 
+                # Log results of shorts detection tests.
+                proxy.signals.signal('shorts-detected').connect(log_event)
+
                 if multi_sensing:
                     # Log multi-sensing capacitance events (in memory).
                     proxy.signals.signal('sensitive-capacitances')\
