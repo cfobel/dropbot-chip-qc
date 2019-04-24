@@ -13,28 +13,15 @@ package:
   version: {{ GIT_VERSION }}
 
 build:
-  script: python setup.py install --single-version-externally-managed --record record.txt
+  script: "{{ PYTHON }} -m pip install . --no-deps -vv"
   entry_points:
     - dropbot-chip-qc = dropbot_chip_qc.bin.test:main
   skip: true  # [not win]
 
 requirements:
   build:
-    - asyncio-helpers
-    - blinker
-    - dropbot >=1.71.0,<2.0.0|>=2.2.0
-    - functools32
-    - lxml
-    - mutagen
-    - networkx
-    - opencv
-    - pandas
-    - pillow
-    - pyside2
-    - pywin32
-    - pyzbar
-    - qrcode
-    - trollius
+    - pip
+    - python
 
   run:
     - asyncio-helpers
