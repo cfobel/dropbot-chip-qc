@@ -106,7 +106,6 @@ def connect(svg_source=None):
 
         # Disable channels in contact with copper tape.
         disabled_channels_mask_i = proxy.disabled_channels_mask
-        disabled_channels_mask_i[[89, 30]] = 1
         # Disable channels with no neighbours defined.
         neighbour_counts = neighbours.groupby(level='channel').count()
         disabled_channels_mask_i[neighbour_counts.loc[neighbour_counts < 1].index] = 1

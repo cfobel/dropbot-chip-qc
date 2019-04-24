@@ -96,10 +96,6 @@ def _run_test(signals, proxy, G, way_points, start=None,
     '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
-    # XXX TODO Remove channel mapping for electrodes 89 and 30 in `SCI-BOTS
-    # 90-pin array` device SVG.
-    G_i.remove_node(89)
-    G_i.remove_node(30)
 
     if start is None:
         start = way_points[0]
