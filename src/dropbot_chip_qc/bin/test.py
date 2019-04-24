@@ -102,6 +102,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``resolution`` and ``device_id`` keyword arguments.
     .. versionchanged:: 0.8.0
         Add ``multi_sensing`` keyword argument.
+    .. versionchanged:: X.X.X
+        Update to support new return type from `connect()`, use ``proxy``
+        attribute of ``monitor_task``, and ``channels_graph`` attribute of
+        ``proxy``.
     '''
     output_dir = ph.path(output_dir)
 
@@ -119,7 +123,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
 
     logging.info('Wait for connection to DropBot...')
-    monitor_task, proxy, G = connect(svg_source=svg_source)
+    monitor_task = connect(svg_source=svg_source)
+    proxy = monitor_task.proxy
+    G = proxy.channels_graph
     proxy.voltage = 115
 
     def update_video(video, uuid):
