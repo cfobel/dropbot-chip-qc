@@ -104,7 +104,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``resolution`` and ``device_id`` keyword arguments.
     .. versionchanged:: 0.8.0
         Add ``multi_sensing`` keyword argument.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.9.0
         Update to support new return type from `connect()`, use ``proxy``
         attribute of ``monitor_task``, and ``channels_graph`` attribute of
         ``proxy``.
@@ -295,7 +295,7 @@ def parse_args(args=None):
         Fix ``resolution`` argument handling.
     .. versionchanged:: 0.8.0
         Add ``multi-sensing`` (``-M``) argument.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.9.0
         Add support for reading embedded test route waypoints from the chip
         design SVG file (see sci-bots/dmf-chip#1), allowing a test route to be
         specified as either an id of a ``<dmf:TestRoute>`` element in the SVG

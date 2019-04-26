@@ -17,7 +17,7 @@ import trollius as asyncio
 
 def load_device(chip_file):
     '''
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.9.0
         Delegate SVG parsing and neighbour extraction to the `dmf_chip`
         package; using the :func:`load()` and :func:`get_neighbours()`
         functions, respectively.
@@ -33,11 +33,11 @@ def load_device(chip_file):
 
 def connect(svg_source=None):
     '''
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.9.0
         Attach ``electrodes_graph``, ``channels_graph``, and ``chip_info``
         attributes to ``proxy`` to expose adjacent electrode ids and channel
         numbers, along with detailed chip design info parsed from SVG file.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.9.0
         Attach ``proxy`` attribute to monitor task to DropBot handle.
     '''
     signals = blinker.Namespace()
