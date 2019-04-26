@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import
 import argparse
+import copy
 import datetime as dt
 import functools as ft
 import io
@@ -14,6 +15,7 @@ import time
 from asyncio_helpers import cancellable
 from PySide2.QtWidgets import QMessageBox, QMainWindow, QApplication
 import blinker
+import dmf_chip as dc
 import dropbot as db
 import dropbot.self_test
 import lxml.etree
@@ -112,6 +114,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         ``proxy``.
     .. versionchanged:: X.X.X
         Explicitly execute a shorts detection test at the start of a chip test.
+    .. versionchanged:: X.X.X
+        Add chip info to logged ``test-start`` message.
     '''
     output_dir = ph.path(output_dir)
 
@@ -206,6 +210,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                                               db.self_test.system_info(proxy),
                                               'i2c_scan':
                                               db.self_test.test_i2c(proxy)}
+                        message['dmf_chip.__version'] = dc.__version__
+                        message['chip-info'] = copy.deepcopy(proxy.chip_info)
                     log_event(message)
 
                 # Log results of shorts detection tests.
