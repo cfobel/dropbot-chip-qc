@@ -2,6 +2,7 @@
 from __future__ import print_function, absolute_import
 import argparse
 import datetime as dt
+import functools as ft
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ import blinker
 import dropbot as db
 import dropbot.self_test
 import functools as ft
+import lxml.etree
 import mutagen
 import networkx as nx
 import path_helpers as ph
@@ -102,6 +104,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add ``resolution`` and ``device_id`` keyword arguments.
     .. versionchanged:: 0.8.0
         Add ``multi_sensing`` keyword argument.
+    .. versionchanged:: 0.9.0
+        Update to support new return type from `connect()`, use ``proxy``
+        attribute of ``monitor_task``, and ``channels_graph`` attribute of
+        ``proxy``.
     '''
     output_dir = ph.path(output_dir)
 
@@ -119,7 +125,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     signals.signal('closed').connect(lambda sender: closed.set(), weak=False)
 
     logging.info('Wait for connection to DropBot...')
-    monitor_task, proxy, G = connect(svg_source=svg_source)
+    monitor_task = connect(svg_source=svg_source)
+    proxy = monitor_task.proxy
+    G = proxy.channels_graph
     proxy.voltage = 115
 
     def update_video(video, uuid):
@@ -287,6 +295,11 @@ def parse_args(args=None):
         Fix ``resolution`` argument handling.
     .. versionchanged:: 0.8.0
         Add ``multi-sensing`` (``-M``) argument.
+    .. versionchanged:: 0.9.0
+        Add support for reading embedded test route waypoints from the chip
+        design SVG file (see sci-bots/dmf-chip#1), allowing a test route to be
+        specified as either an id of a ``<dmf:TestRoute>`` element in the SVG
+        _or_ a JSON list of channel numbers.
     '''
     if args is None:
         args = sys.argv[1:]
@@ -312,19 +325,48 @@ def parse_args(args=None):
     parser.add_argument('-S', '--svg-path', type=ph.path,
                         default=io.BytesIO(DEFAULT_DEVICE_SOURCE),
                         help="SVG device file (default='%s')" % DEFAULT_DEVICE_NAME)
-    default_waypoints = [110, 93, 85, 70, 63, 62, 118, 1, 57, 56, 49, 34, 26,
-                         9, 0, 119]
-    parser.add_argument('way_points', help='Test waypoints as JSON list '
+    parser.add_argument('test_route', help='Test route as either id of '
+                        '<dmf:TestRoute> in SVG or JSON list of channel '
+                        'numbers, e.g., "[110, 109, 115]" '
                         '(default="%(default)s").', nargs='?',
-                        default=str(default_waypoints))
+                        default='default')
 
     args = parser.parse_args(args)
 
     args.resolution = tuple(map(int, args.resolution.split('x')))
-    args.way_points = json.loads(args.way_points)
+    try:
+        args.way_points = json.loads(args.test_route)
+    except ValueError:
+        # Assume test route arg specifies id of test route in SVG.
+        try:
+            doc = lxml.etree.parse(args.svg_path)
+        finally:
+            if isinstance(args.svg_path, io.BytesIO):
+                # "Rewind" file after parsing to pass to remaining code.
+                args.svg_path.seek(0)
+        root = doc.getroot()
+        NSMAP = {k: v for k, v in root.nsmap.items() if k is not None}
+        rxpath = ft.wraps(root.xpath)(ft.partial(root.xpath, namespaces=NSMAP))
+        # Read test routes.
+        test_route_elements = \
+            rxpath('//dmf:ChipDesign/dmf:TestRoutes/dmf:TestRoute[@id!=""]')
+        for route in test_route_elements:
+            xpath_ = ft.wraps(route.xpath)(ft.partial(route.xpath,
+                                                      namespaces=NSMAP))
+            route_ = dict(route.attrib.items())
+            if route_.get('id') == args.test_route:
+                # Test route matches specified route id.  Extract waypoints.
+                args.way_points = [int(w.text) for w in xpath_('dmf:Waypoint')]
+                break
+        else:
+            parser.error('No test route with `id=%s` found in chip file.' %
+                         args.test_route)
 
     if args.start is None:
         args.start = args.way_points[0]
+    elif args.start not in args.way_points:
+        parser.error('Start channel must be one of the waypoints: `%s`' %
+                     args.way_points)
     return args
 
 

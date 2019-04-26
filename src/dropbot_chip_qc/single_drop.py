@@ -93,13 +93,11 @@ def _run_test(signals, proxy, G, way_points, start=None,
         Prune unreachable electrodes from test route (e.g., after liquid
         movement to a bottleneck electrode has failed; cutting off the only
         path to other electrodes on the test route).
+    .. versionchanged:: 0.9.0
+        Do not remove channels 30 and 89 and from the connections graph.
     '''
     logging.info('Begin DMF chip test routine.')
     G_i = G.copy()
-    # XXX TODO Remove channel mapping for electrodes 89 and 30 in `SCI-BOTS
-    # 90-pin array` device SVG.
-    G_i.remove_node(89)
-    G_i.remove_node(30)
 
     if start is None:
         start = way_points[0]
