@@ -295,6 +295,11 @@ def parse_args(args=None):
         Fix ``resolution`` argument handling.
     .. versionchanged:: 0.8.0
         Add ``multi-sensing`` (``-M``) argument.
+    .. versionchanged:: X.X.X
+        Add support for reading embedded test route waypoints from the chip
+        design SVG file (see sci-bots/dmf-chip#1), allowing a test route to be
+        specified as either an id of a ``<dmf:TestRoute>`` element in the SVG
+        _or_ a JSON list of channel numbers.
     '''
     if args is None:
         args = sys.argv[1:]

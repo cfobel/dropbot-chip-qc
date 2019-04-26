@@ -16,6 +16,12 @@ import trollius as asyncio
 
 
 def load_device(chip_file):
+    '''
+    .. versionchanged:: X.X.X
+        Delegate SVG parsing and neighbour extraction to the `dmf_chip`
+        package; using the :func:`load()` and :func:`get_neighbours()`
+        functions, respectively.
+    '''
     chip_info = dc.load(chip_file)
     neighbours = dc.get_neighbours(chip_info)
 
