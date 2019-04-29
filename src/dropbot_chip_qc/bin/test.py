@@ -386,13 +386,16 @@ def parse_args(args=None):
     elif args.start not in args.way_points:
         parser.error('Start channel must be one of the waypoints: `%s`' %
                      args.way_points)
+
+    print('waypoints: `%s`' % args.way_points)
+    print('start: `%s`' % args.start)
     return args
 
 
 def main():
-    args = parse_args()
     logging.basicConfig(level=logging.DEBUG,
                         format="[%(asctime)s] %(levelname)s: %(message)s")
+    args = parse_args()
     app = QApplication(sys.argv)
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
