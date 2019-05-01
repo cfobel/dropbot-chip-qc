@@ -1,5 +1,6 @@
 '''
 Copyright 2012 @chfoo (stackoverflow.com), https://stackoverflow.com/a/12127115/345236
+Copyright 2019 Christian Fobel (christian@sci-bots.com)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -21,7 +22,24 @@ class InvokeEvent(QtCore.QEvent):
 
 
 class Invoker(QtCore.QObject):
+    '''Easy way to schedule code to run in Qt UI thread.
+
+    Equivalent to PyGObject's `GLib.idle_add()`.
+
+    Example
+    -------
+
+    >>> from dropbot_chip_qc.ui.invoker import Invoker
+    >>>
+    >>> invoker = Invoker()
+    >>> # Queue `my_function(*my_args, **my_kwargs)` execution in Qt UI thread.
+    >>> invoker.invoke(my_function, *my_args, **my_kwargs)
+    '''
     def event(self, event):
         event.fn(*event.args, **event.kwargs)
 
         return True
+
+    def invoke(self, fn, *args, **kwargs):
+        QtCore.QCoreApplication.postEvent(self, InvokeEvent(fn, *args,
+                                                            **kwargs))
