@@ -86,6 +86,7 @@ class QCVideoViewer(ImageViewer):
         self._signals = signals
         self._invoker = Invoker()
         signals.signal('frame-ready').connect(self.on_frame_ready)
+        self._frame = None
 
     def on_frame_ready(self, sender, **record):
         frame = record['frame']
@@ -98,5 +99,12 @@ class QCVideoViewer(ImageViewer):
                                  QtGui.QImage.Format_RGB888)
             pix = QtGui.QPixmap(image)
             self.setPhoto(pix)
+            if self._frame is None:
+                self.fitInView()
+            self._frame = rgb_frame
 
         self._invoker.invoke(draw_frame, rgb_frame)
+
+    def resizeEvent(self, event):
+        self.fitInView()
+        return super(QCVideoViewer, self).resizeEvent(event)
