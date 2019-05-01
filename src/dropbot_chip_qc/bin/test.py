@@ -54,7 +54,8 @@ def question(text, title='Question', flags=QMessageBox.StandardButton.Yes |
 
 def run_test(way_points, start_electrode, output_dir, video_dir=None,
              overwrite=False, svg_source=None, launch=False,
-             resolution=(1280, 720), device_id=0, multi_sensing=False):
+             resolution=(1280, 720), device_id=0, multi_sensing=False,
+             voltage=115):
     '''
     Parameters
     ----------
@@ -116,6 +117,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Explicitly execute a shorts detection test at the start of a chip test.
     .. versionchanged:: 0.10.0
         Add chip info to logged ``test-start`` message.
+    .. versionchanged:: 0.11.0
+        Add ``voltage`` keyword argument (actuation RMS voltage).
     '''
     output_dir = ph.path(output_dir)
 
@@ -136,7 +139,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
     monitor_task = connect(svg_source=svg_source)
     proxy = monitor_task.proxy
     G = proxy.channels_graph
-    proxy.voltage = 115
+    proxy.voltage = voltage
 
     def update_video(video, uuid):
         response = question('Attempt to set UUID in title of video file, '
@@ -319,6 +322,8 @@ def parse_args(args=None):
         design SVG file (see sci-bots/dmf-chip#1), allowing a test route to be
         specified as either an id of a ``<dmf:TestRoute>`` element in the SVG
         _or_ a JSON list of channel numbers.
+    .. versionchanged:: 0.11.0
+        Add ``voltage`` (``-V``) argument.
     '''
     if args is None:
         args = sys.argv[1:]
@@ -349,6 +354,8 @@ def parse_args(args=None):
                         'numbers, e.g., "[110, 109, 115]" '
                         '(default="%(default)s").', nargs='?',
                         default='default')
+    parser.add_argument('-V', '--voltage', type=float, help='Actuation RMS '
+                        'voltage')
 
     args = parser.parse_args(args)
 
@@ -401,8 +408,8 @@ def main():
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
              overwrite=args.force, svg_source=args.svg_path,
              launch=args.launch, device_id=args.video_device,
-             resolution=args.resolution,
-             multi_sensing=args.multi_sensing)
+             resolution=args.resolution, multi_sensing=args.multi_sensing,
+             voltage=args.voltage)
 
 
 if __name__ == '__main__':
