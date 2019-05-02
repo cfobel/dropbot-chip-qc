@@ -119,6 +119,8 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Add chip info to logged ``test-start`` message.
     .. versionchanged:: 0.11.0
         Add ``voltage`` keyword argument (actuation RMS voltage).
+    .. versionchanged:: 0.11.1
+        Remove shorted channels from adjacent channels graph.
     '''
     output_dir = ph.path(output_dir)
 
@@ -240,7 +242,11 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                     signals.signal(event).connect(logger)
 
                 # Explicitly execute a shorts detection test.
-                proxy.detect_shorts()
+                for shorted_channel in proxy.detect_shorts():
+                    if shorted_channel in G:
+                        print('remove shorted channel: %s' % shorted_channel,
+                              file=sys.stderr)
+                        G.remove_node(shorted_channel)
 
                 try:
                     start = time.time()
