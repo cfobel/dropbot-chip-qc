@@ -112,9 +112,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Update to support new return type from `connect()`, use ``proxy``
         attribute of ``monitor_task``, and ``channels_graph`` attribute of
         ``proxy``.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.10.0
         Explicitly execute a shorts detection test at the start of a chip test.
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.10.0
         Add chip info to logged ``test-start`` message.
     '''
     output_dir = ph.path(output_dir)

@@ -143,7 +143,7 @@ def draw_results(chip_info, events, axes=None):
 
 def summarize_results(events, **kwargs):
     '''
-    .. versionchanged:: X.X.X
+    .. versionchanged:: 0.10.0
         Read software versions from ``test-start`` instead of
         ``test-complete``.  Add ``shorts_detected`` item to render context
         dictionary.
