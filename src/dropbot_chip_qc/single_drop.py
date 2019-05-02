@@ -68,7 +68,6 @@ def _run_test(signals, proxy, G, way_points, start=None,
       - ``success_route``: list of electrodes visited consecutively
       - ``failed_electrodes``: list of electrodes where movement failed
       - ``success_electrodes``: list of electrodes where movement succeeded
-      - ``__version__``: :py:mod:`dropbot_chip_qc` package version
 
 
     Returns
@@ -199,8 +198,7 @@ def _run_test(signals, proxy, G, way_points, start=None,
     winsound.MessageBeep()
     result = {'success_route': success_route,
               'failed_electrodes': sorted(set(route) - set(success_route)),
-              'success_electrodes': sorted(set(success_route)),
-              '__version__': db.__version__}
+              'success_electrodes': sorted(set(success_route))}
     logging.info('Completed - failed electrodes: `%s`' %
                  result['failed_electrodes'])
     signals.signal('test-complete').send('_run_test', **result)

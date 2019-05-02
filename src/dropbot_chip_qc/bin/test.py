@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 from __future__ import print_function, absolute_import
 import argparse
+import copy
 import datetime as dt
 import functools as ft
 import io
@@ -14,9 +15,9 @@ import time
 from asyncio_helpers import cancellable
 from PySide2.QtWidgets import QMessageBox, QMainWindow, QApplication
 import blinker
+import dmf_chip as dc
 import dropbot as db
 import dropbot.self_test
-import functools as ft
 import lxml.etree
 import mutagen
 import networkx as nx
@@ -29,6 +30,9 @@ from ..video import chip_video_process, show_chip
 from ..single_drop import _run_test as _single_run_test
 from ..multi_sensing import _run_test as _multi_run_test
 from .video import VIDEO_PARSER
+from .._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
 
 
 def _date_subs_dict(datetime_=None):
@@ -108,6 +112,10 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
         Update to support new return type from `connect()`, use ``proxy``
         attribute of ``monitor_task``, and ``channels_graph`` attribute of
         ``proxy``.
+    .. versionchanged:: 0.10.0
+        Explicitly execute a shorts detection test at the start of a chip test.
+    .. versionchanged:: 0.10.0
+        Add chip info to logged ``test-start`` message.
     '''
     output_dir = ph.path(output_dir)
 
@@ -192,14 +200,22 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                 def log_route_event(event, message):
                     # Tag kwargs with route event name.
                     message['event'] = event
-                    # Add chip and DropBot system info to `test-start` message.
+                    # Add chip, DropBot, and version info to `test-start`
+                    # message.
                     if event == 'test-start':
                         message['uuid'] = uuid
+                        message['dropbot.__version__'] = db.__version__
+                        message['dropbot_chip_qc.__version__'] = __version__
                         message['dropbot'] = {'system_info':
                                               db.self_test.system_info(proxy),
                                               'i2c_scan':
                                               db.self_test.test_i2c(proxy)}
+                        message['dmf_chip.__version'] = dc.__version__
+                        message['chip-info'] = copy.deepcopy(proxy.chip_info)
                     log_event(message)
+
+                # Log results of shorts detection tests.
+                proxy.signals.signal('shorts-detected').connect(log_event)
 
                 if multi_sensing:
                     # Log multi-sensing capacitance events (in memory).
@@ -219,6 +235,9 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                                      'test-complete')}
                 for event, logger in loggers.items():
                     signals.signal(event).connect(logger)
+
+                # Explicitly execute a shorts detection test.
+                proxy.detect_shorts()
 
                 try:
                     start = time.time()
@@ -367,13 +386,16 @@ def parse_args(args=None):
     elif args.start not in args.way_points:
         parser.error('Start channel must be one of the waypoints: `%s`' %
                      args.way_points)
+
+    print('waypoints: `%s`' % args.way_points)
+    print('start: `%s`' % args.start)
     return args
 
 
 def main():
-    args = parse_args()
     logging.basicConfig(level=logging.DEBUG,
                         format="[%(asctime)s] %(levelname)s: %(message)s")
+    args = parse_args()
     app = QApplication(sys.argv)
 
     run_test(args.way_points, args.start, args.output_dir, args.video_dir,
