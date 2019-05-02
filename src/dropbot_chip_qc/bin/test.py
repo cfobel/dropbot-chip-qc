@@ -330,6 +330,9 @@ def parse_args(args=None):
         _or_ a JSON list of channel numbers.
     .. versionchanged:: 0.11.0
         Add ``voltage`` (``-V``) argument.
+    .. versionchanged:: 0.11.2
+        Remove ``-V`` short-form of ``voltage`` argument, since it conflicts
+        with video device arg.
     '''
     if args is None:
         args = sys.argv[1:]
@@ -360,8 +363,8 @@ def parse_args(args=None):
                         'numbers, e.g., "[110, 109, 115]" '
                         '(default="%(default)s").', nargs='?',
                         default='default')
-    parser.add_argument('-V', '--voltage', type=float, help='Actuation RMS '
-                        'voltage')
+    parser.add_argument('--voltage', type=float, help='Actuation RMS voltage '
+                        '(default=%(default)s)', default=100)
 
     args = parser.parse_args(args)
 
