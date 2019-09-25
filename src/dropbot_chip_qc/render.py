@@ -258,14 +258,23 @@ def render_summary(events, output_path, svg_source=None):
         html_data = input_.read().decode('utf8')
 
     # Inject JSON result data into HTML report.
-    soup = bs4.BeautifulSoup(html_data, 'lxml')
-    results_script = soup.select_one('script#results')
-    # Format JSON with indents.  Works around [`json_tricks`
-    # issue][i51].
-    #
-    # [i51]: https://github.com/mverleg/pyjson_tricks/issues/51
-    json_data = json_tricks.dumps(events, indent=4)
-    results_script.string = bs4.NavigableString(json_data)
-    with output_path.open('w') as output:
-        output.write(unicode(soup).encode('utf8'))
+    cre_results_script = re.compile(r'<script id="results" type="application/json">(.*?</script>)?',
+                                    flags=re.DOTALL | re.MULTILINE)
+
+    match = cre_results_script.search(html_data)
+    if match:
+        # Format JSON with indents.  Works around [`json_tricks`
+        # issue][i51].
+        #
+        # [i51]: https://github.com/mverleg/pyjson_tricks/issues/51
+        json_data = json_tricks.dumps(events, indent=4)
+        html_mod = cre_results_script.sub(r'<script id="results" '
+                                          r'type="application/json">%s'
+                                          r'</script>' % json_data, html_data)
+
+        output_with_json_path = \
+            output_path.parent.joinpath(output_path.namebase +
+                                        '-with_json.html')
+        with output_with_json_path.open('w') as output:
+            output.write(html_mod.encode('utf8'))
     return fig
