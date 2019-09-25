@@ -255,7 +255,7 @@ def render_summary(events, output_path, svg_source=None):
         parent_dir.rmtree()
 
     with output_path.open('r') as input_:
-        html_data = input_.read()
+        html_data = input_.read().decode('utf8')
 
     # Inject JSON result data into HTML report.
     soup = bs4.BeautifulSoup(html_data, 'lxml')
