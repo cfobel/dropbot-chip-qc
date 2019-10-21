@@ -27,6 +27,7 @@ import dropbot_chip_qc.connect
 import dropbot_chip_qc.video
 import dropbot_monitor as dbm
 import dropbot_monitor.mqtt_proxy
+from dropbot_monitor.mqtt_proxy import MqttProxy
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -141,7 +142,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return super(MainWindow, self).resizeEvent(event)
 
 
-class DropBotMqttProxy(dbm.mqtt_proxy.MqttProxy):
+class DropBotMqttProxy(MqttProxy):
     def __init__(self, *args, **kwargs):
         super(DropBotMqttProxy, self).__init__(*args, **kwargs)
         super(DropBotMqttProxy, self).__setattr__('transaction_lock',

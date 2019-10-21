@@ -18,145 +18,34 @@
 
 # +
 from __future__ import print_function, division
-import functools as ft
-import threading
-import time
+import logging
+logging.basicConfig(level=logging.INFO)
 
 from PySide2 import QtGui, QtCore, QtWidgets
-
-from matplotlib.backends.backend_qt5agg import (FigureCanvas,
-                                                NavigationToolbar2QT as
-                                                NavigationToolbar)
-from matplotlib.figure import Figure
+from dropbot_chip_qc.ui.mdi import (FigureMdi, DropBotSettings, MdiArea,
+                                    MainWindow, DropBotMqttProxy)
 
 # %gui qt5
 
+from asyncio_helpers import asyncio
 from dropbot_chip_qc.ui.viewer import QCVideoViewer
+from logging_helpers import caller_name
 import asyncio_helpers as aioh
 import dmf_chip as dc
-import dropbot as db
 import dropbot.move
-import dropbot_chip_qc as dq
 import dropbot_chip_qc as qc
 import dropbot_chip_qc.connect
+import dropbot_chip_qc.ui.plan
 import dropbot_chip_qc.video
+import matplotlib as mpl
 import networkx as nx
 import numpy as np
 import pandas as pd
 import si_prefix as si
-import trollius as asyncio
 
 # For colors, see: https://gist.github.com/cfobel/fd939073cf13a309d7a9
 light_blue = '#88bde6'
 light_green = '#90cd97'
-
-# +
-class FigureMdi(QtWidgets.QMdiSubWindow):
-    def __init__(self):
-        super(FigureMdi, self).__init__()
-        canvas = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
-        toolbar = NavigationToolbar(canvas, self)
-        self._ax = canvas.figure.subplots()
-        layout = self.layout()
-        layout.addWidget(toolbar)
-        layout.addWidget(canvas)
-        self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
-        self.setGeometry(500, 300, 800, 600)
-
-
-class DropBotSettings(QtWidgets.QWidget):
-    def __init__(self, signals, name='form'):
-        super(DropBotSettings, self).__init__()
-        self.formGroupBox = QtWidgets.QGroupBox("DropBot")
-        self.layout = QtWidgets.QFormLayout()
-        voltage_spin_box = QtWidgets.QDoubleSpinBox()
-        voltage_spin_box.setRange(0, 150);
-        voltage_spin_box.setValue(100)
-
-        self.layout.addRow(QtWidgets.QLabel("Voltage:"), voltage_spin_box)
-        self.layout.addRow(QtWidgets.QLabel("Chip UUID:"),
-                           QtWidgets.QLineEdit())
-
-        self.formGroupBox.setLayout(self.layout)
-        self.setLayout(self.layout)
-
-        def on_change(x):
-            signals.signal('dropbot.voltage').send(name, value=x)
-
-        voltage_spin_box.valueChanged.connect(on_change)
-
-    @property
-    def fields(self):
-        return {self.layout.itemAt(i, QtWidgets.QFormLayout.LabelRole).widget()
-                .text(): self.layout.itemAt(i, QtWidgets.QFormLayout.FieldRole)
-                .widget() for i in range(self.layout.rowCount())}
-
-
-def tileVertically(mdi):
-    windows = mdi.subWindowList()
-    if len(windows) < 2:
-        mdi.tileSubWindows()
-    else:
-        wHeight = mdi.height() / len(windows)
-        y = 0
-        for widget in windows:
-            widget.resize(mdi.width(), wHeight)
-            widget.move(0, y)
-            y += wHeight
-
-
-class MdiArea(QtWidgets.QMdiArea):
-    keyPressed = QtCore.Signal(QtCore.QEvent)
-
-    def keyPressEvent(self, event):
-        self.keyPressed.emit(event)
-        return super(MdiArea, self).keyPressEvent(event)
-
-
-class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self):
-        super(MainWindow, self).__init__()
-
-        self.mdiArea = MdiArea()
-        self.mdiArea.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        self.mdiArea.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        self.mdiArea.setActivationOrder(QtWidgets.QMdiArea.WindowOrder.ActivationHistoryOrder)
-        self.setCentralWidget(self.mdiArea)
-
-        # self.mdiArea.subWindowActivated.connect(self.updateMenus)
-
-        self.setWindowTitle('DMF chip quality control')
-
-    def createMdiChild(self, signals):
-        sub_window = QtWidgets.QMdiSubWindow()
-        sub_window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
-        sub_window.setGeometry(500, 300, 800, 600)
-        child = QCVideoViewer(None, signals)
-        sub_window.layout().addWidget(child)
-        self.mdiArea.addSubWindow(sub_window)
-        return child
-
-    def closeEvent(self, event):
-        self.mdiArea.closeAllSubWindows()
-        if self.activeMdiChild():
-            event.ignore()
-        else:
-            event.accept()
-
-    def tileVertically(self):
-        tileVertically(self.mdiArea)
-
-    def fit(self):
-        for sub_window in window.mdiArea.subWindowList():
-            for c in sub_window.children():
-                if hasattr(c, 'fitInView'):
-                    c.fitInView()
-
-    def resizeEvent(self, event):
-        self.tileVertically()
-        return super(MainWindow, self).resizeEvent(event)
-
-
 # -
 
 # ## Create DropBot monitor process
@@ -175,35 +64,14 @@ class MainWindow(QtWidgets.QMainWindow):
 #  - `started`: `threading.Event`, which is set once the task has started execution
 
 # +
-chip_file = r'C:\Users\chris\Dropbox (Sci-Bots)\SCI-BOTS\manufacturing\chips\MicroDrop SVGs\sci-bots-90-pin-array-with_interdigitation.svg'
+import functools as ft
 
-
-monitor_task = qc.connect.connect(svg_source=chip_file)
-chip_info_mm = dc.to_unit(monitor_task.proxy.chip_info, 'mm')
-electrode_channels = pd.Series((e['channels'][0] for e in
-                                monitor_task.proxy.chip_info['electrodes']),
-                               index=(e['id'] for e in monitor_task.proxy
-                                      .chip_info['electrodes']),
-                               name='channel').sort_values()
-electrode_channels.index.name = 'id'
-channel_electrodes = pd.Series(electrode_channels.index,
-                               index=electrode_channels)
-electrode_neighbours = dc.get_neighbours(monitor_task.proxy.chip_info)
-channels_index = pd.MultiIndex.from_tuples([(electrode_channels[id_],
-                                             direction) for id_, direction in
-                                            electrode_neighbours.index.values])
-channels_index.names = 'channel', 'direction'
-channel_neighbours = pd.Series(electrode_channels[electrode_neighbours].values,
-                               index=channels_index,
-                               name='neighbour_channel').sort_index()
+import blinker
 
 
 def on_voltage_changed(sender, **message):
-    if 'value' in message:
-        monitor_task.proxy.voltage = message['value']
-
-monitor_task.signals.signal('dropbot.voltage').connect(on_voltage_changed,
-                                                       weak=False)
+    if 'value' in message and proxy is not None:
+        proxy.voltage = message['value']
 
 
 def draw_chip(chip_info, ax, **kwargs):
@@ -238,10 +106,36 @@ def dump(*args, **kwargs):
     print('\r%-100s' % ('args: `%s`, kwargs: `%s`' % (args, kwargs)), end='')
 
 
+signals = blinker.Namespace()
+
 for k in ('dropbot.voltage', 'chip-detected'):
-    if k in monitor_task.signals:
-        del monitor_task.signals[k]
-    monitor_task.signals.signal(k).connect(ft.partial(dump, k), weak=False)
+    if k in signals:
+        del signals[k]
+    signals.signal(k).connect(ft.partial(dump, k), weak=False)
+
+chip_file = r'C:\Users\chris\Dropbox (Sci-Bots)\SCI-BOTS\manufacturing\chips\MicroDrop SVGs\sci-bots-90-pin-array-with_interdigitation.svg'
+
+chip_info, electrodes_graph, electrode_neighbours = \
+    qc.connect.load_device(chip_file)
+
+# Convert `electrode_neighbours` to channel numbers instead of electrode ids.
+electrode_channels = pd.Series({e['id']: e['channels'][0]
+                                for e in chip_info['electrodes']})
+channel_electrodes = pd.Series(electrode_channels.index,
+                               index=electrode_channels)
+index = pd.MultiIndex\
+    .from_arrays([electrode_channels[electrode_neighbours.index
+                                     .get_level_values('id')],
+                  electrode_neighbours.index.get_level_values('direction')],
+                 names=('channel', 'direction'))
+channel_neighbours = pd.Series(electrode_channels[electrode_neighbours].values,
+                               index=index)
+channels_graph = nx.Graph([tuple(map(electrode_channels.get, e))
+                           for e in electrodes_graph.edges])
+chip_info_mm = dc.to_unit(chip_info, 'mm')
+
+proxy = None
+signals.signal('dropbot.voltage').connect(on_voltage_changed, weak=False)
 # -
 
 # ## Create Qt Window
@@ -254,7 +148,7 @@ for k in ('dropbot.voltage', 'chip-detected'):
 
 # +
 window = MainWindow()
-viewer = window.createMdiChild(monitor_task.signals)
+viewer = window.createMdiChild(signals)
 window.show()
 window.tileVertically()
 
@@ -265,11 +159,14 @@ def on_key_press(event):
     else:
         return
 
-    with monitor_task.proxy.transaction_lock:
-        states = monitor_task.proxy.state_of_channels
+    if proxy is None:
+        return
+
+    with proxy.transaction_lock:
+        states = proxy.state_of_channels
         neighbours = channel_neighbours.loc[states[states > 0].index.tolist(),
                                             k]
-        monitor_task.proxy.set_state_of_channels(pd.Series(1,
+        proxy.set_state_of_channels(pd.Series(1,
                                                            index=neighbours),
                                                  append=False)
 
@@ -278,7 +175,7 @@ window.mdiArea.keyPressed.connect(on_key_press)
 def tile_key(event):
     modifiers_ = QtWidgets.QApplication.keyboardModifiers()
     modifiers = []
-    
+
     if modifiers_ & QtCore.Qt.ShiftModifier:
         modifiers.append('Shift')
     if modifiers_ & QtCore.Qt.ControlModifier:
@@ -287,17 +184,17 @@ def tile_key(event):
         modifiers.append('Alt')
     if modifiers_ & QtCore.Qt.MetaModifier:
         modifiers.append('Meta')
-        
+
     modifiers.append(QtGui.QKeySequence(event.key()).toString())
     key_seq = QtGui.QKeySequence('+'.join(map(str, modifiers)))
-    
+
     if key_seq == QtGui.QKeySequence('Ctrl+T'):
         window.mdiArea.tileSubWindows()
 
 window.mdiArea.keyPressed.connect(tile_key)
 
 
-d = DropBotSettings(monitor_task.signals)
+d = DropBotSettings(signals)
 window.mdiArea.addSubWindow(d)
 d.show()
 window.mdiArea.tileSubWindows()
@@ -307,8 +204,7 @@ def on_chip_detected(sender, decoded_objects=tuple()):
     if decoded_objects:
         d.fields['Chip UUID:'].setText(decoded_objects[0].data)
 
-monitor_task.signals.signal('chip-detected').connect(on_chip_detected,
-                                                     weak=False)
+signals.signal('chip-detected').connect(on_chip_detected, weak=False)
 # -
 
 
@@ -321,10 +217,14 @@ monitor_task.signals.signal('chip-detected').connect(on_chip_detected,
 #  - Emitting `chip-detected` signal in `monitor_task.signals` namespace if a
 #    new QR code is detected
 
-thread = threading.Thread(target=dq.video.chip_video_process,
-                          args=(monitor_task.signals, 1280, 720, 0))
+# +
+import threading
+
+thread = threading.Thread(target=qc.video.chip_video_process,
+                          args=(signals, 1280, 720, 0))
 thread.start()
 window.show()
+# -
 
 # ## Create interactive chip layout figure
 #
@@ -341,41 +241,44 @@ window.show()
 #    * **blue**: not actuated
 #    * **green**: actuated
 
+proxy = DropBotMqttProxy.from_uri('dropbot', 'localhost')
+aproxy = DropBotMqttProxy.from_uri('dropbot', 'localhost', async_=True)
+
 # +
 figure = FigureMdi()
 
 window.mdiArea.addSubWindow(figure)
 figure.show()
 
-plot_result = draw_chip(monitor_task.proxy.chip_info, figure._ax)
+plot_result = draw_chip(chip_info, figure._ax)
 figure._ax.figure.canvas.draw()
 
-## Start video monitor process and update Qt Window async
 window.fit()
 window.mdiArea.tileSubWindows()
 
-@asyncio.coroutine
 def on_channels_updated(patches, sender, **message):
     def _update_ui():
         actuated_ids = set(channel_electrodes[message['actuated']])
         for id_i, patch_i in patches.items():
-            colour_i = light_green if id_i in actuated_ids else light_blue
-            patch_i.set_facecolor(colour_i)
+#             colour_i = light_green if id_i in actuated_ids else light_blue
+#             patch_i.set_facecolor(colour_i)
+            alpha_i = 1. if id_i in actuated_ids else .3
+            patch_i.set_alpha(alpha_i)
         figure._ax.figure.canvas.draw()
     viewer._invoker.invoke(_update_ui)
 
-monitor_task.signals.signal('channels-updated')\
+proxy.__client__.signals.signal('channels-updated')\
     .connect(ft.partial(on_channels_updated, plot_result['patches']),
                         weak=False)
 
 def onpick(event):
-    if event.mouseevent.button == 1:
+    if proxy is not None and event.mouseevent.button == 1:
         electrode_id = event.artist.get_label()
         channels = electrode_channels[[electrode_id]]
-        with monitor_task.proxy.transaction_lock:
-            states = monitor_task.proxy.state_of_channels
+        with proxy.transaction_lock:
+            states = proxy.state_of_channels
             states[channels] = ~(states[channels].astype(bool))
-            monitor_task.proxy.state_of_channels = states
+            proxy.state_of_channels = states
 
 figure._ax.figure.canvas.mpl_connect('pick_event', onpick)
 # -
@@ -400,132 +303,252 @@ figure._ax.figure.canvas.mpl_connect('pick_event', onpick)
 #  4. Set DropBot voltage to match target of 25 μN force.
 
 name = 'liquid'
-states = monitor_task.proxy.state_of_channels
+states = proxy.state_of_channels
 channels = states[states > 0].index.tolist()
 electrodes_by_id = pd.Series(chip_info_mm['electrodes'],
                              index=(e['id'] for e in
                                     chip_info_mm['electrodes']))
 actuated_area = (electrodes_by_id[channel_electrodes[channels]]
                  .map(lambda x: x['area'])).sum()
-capacitance = pd.Series(monitor_task.proxy.capacitance(0)
+capacitance = pd.Series(proxy.capacitance(0)
                         for i in range(20)).median()
 sheet_capacitance = capacitance / actuated_area
 message = ('Measured %s sheet capacitance: %sF/%.1f mm^2 = %sF/mm^2'
            % (name, si.si_format(capacitance), actuated_area,
               si.si_format(sheet_capacitance)))
 print(message)
-target_force = 25e-6  # i.e., 25 μN
+target_force = 30e-6  # i.e., 30 μN
 voltage = np.sqrt(target_force / (1e3 * 0.5 * sheet_capacitance))
 # Set voltage in DropBot settings UI
 d.fields['Voltage:'].setValue(voltage)
-
 
 # ## Attempt to move liquid along tour, capturing capacitance
 #
 
 # +
+# signals.signal('transfer-complete').disconnect(on_transfer_complete)
+
+# +
+patches = plot_result['patches']
+channel_patches = pd.Series(patches.values(),
+                            index=electrode_channels[patches.keys()])
+
+# Find center of electrode associated with each DropBot channel.
+df_electrode_centers = pd.DataFrame([e['pole_of_accessibility']
+                                     for e in chip_info_mm['electrodes']],
+                                    index=[e['id'] for e in
+                                           chip_info_mm['electrodes']])
+df_electrode_centers.index.name = 'id'
+s_electrode_channels = pd.Series(electrode_channels)
+df_channel_centers = df_electrode_centers.loc[s_electrode_channels.index]
+df_channel_centers.index = s_electrode_channels.values
+df_channel_centers.sort_index(inplace=True)
+df_channel_centers.index.name = 'channel'
+
+
+# +
+def on_transfer_complete(sender, **message):
+    channel_plan = message['channel_plan']
+    completed_transfers = message['completed_transfers']
+
+    # Remove existing quiver arrows.
+    for c in list(figure._ax.collections):
+        if isinstance(c, mpl.quiver.Quiver):
+            c.remove()
+
+    q1, q2 = qc.ui.render.render_plan(figure._ax, df_channel_centers,
+                                      channel_patches, channel_plan,
+                                      completed_transfers)
+    figure._ax.figure.canvas.draw()
+
+signals.signal('transfer-complete').connect(on_transfer_complete, weak=False)
+
+
+# -
+
+# # Execute test on channel plan through waypoints
+
+# +
+def remove_channels_from_plan(channels_graph, channel_plan, bad_channels):
+    bad_channels = set(bad_channels)
+    plan_with_channel_removed = [c for c in channel_plan
+                                 if c not in bad_channels]
+    channels_graph_ = channels_graph.copy()
+    channels_graph_.remove_nodes_from(bad_channels)
+    return list(qc.ui.plan.create_channel_plan(channels_graph_,
+                                               plan_with_channel_removed))
+
+
+revised_channel_plan = remove_channels_from_plan(channels_graph,
+                                                 test_complete
+                                                 .result['channel_plan'],
+                                                 {86})
+test_complete.result['channel_plan'] = revised_channel_plan
+
+# +
+import path_helpers as ph
+import itertools as it
+
+
+import ipywidgets as ipw
+
+import dropbot_chip_qc.ui.render
+
+
 @asyncio.coroutine
-def move_liquid(route):
-    proxy = monitor_task.proxy
+def execute_test(test_complete_event, *args, **kwargs):
     try:
-        proxy.update_state(capacitance_update_interval_ms=5)
-
-        # Apply each actuation for at least 0.3 seconds; allow up to 5
-        # seconds of actuation before attempting to retry.
-        messages = yield asyncio\
-            .From(db.move.move_liquid(proxy, route, min_duration=.5,
-                                      wrapper=ft.partial(asyncio.wait_for,
-                                                         timeout=10)))
-        monitor_task.signals.signal('move-complete').send('move_liquid',
-                                                          messages=messages,
-                                                          route=route)
-    finally:
-        # Disable DropBot capacitance updates.
-        proxy.update_state(capacitance_update_interval_ms=0)
-        proxy.set_state_of_channels(pd.Series(), append=False)
+        result = yield asyncio\
+            .From(qc.ui.plan.transfer_windows(*args, **kwargs))
+    except qc.ui.plan.TransferFailed as e:
+        # Save intermediate result.
+        result = dict(channel_plan=e.channel_plan,
+                      completed_transfers=e.completed_transfers)
+    if not hasattr(test_complete_event, 'result'):
+        test_complete_event.result = []
+    test_complete_event.result.append(result)
+    test_complete_event.set()
+    button_pause.disabled = True
+    yield asyncio.From(aproxy.set_state_of_channels(pd.Series(), append=False))
+    raise asyncio.Return(result)
 
 
-@asyncio.coroutine
-def execute_tour(channels_tour, exclude=tuple()):
-    for a, b in db.move.window(channels_tour[~channels_tour.isin(exclude)],
-                               2):
-        route = nx.shortest_path(monitor_task.proxy.channels_graph, a, b)
-        result = yield asyncio.From(move_liquid(route))
+# waypoints = [110, 113]
+# waypoints = [110, 113, 103]
+waypoints = map(int, chip_info['__metadata__']['test-routes'][0]['waypoints'])
+full_channel_plan = list(qc.ui.plan.create_channel_plan(channels_graph,
+                                                        waypoints))
 
+try:
+    channel_plan = test_complete.result[-1]['channel_plan']
+    completed_transfers = test_complete.result[-1]['completed_transfers']
+except:
+    channel_plan = None
 
-# -
+if not channel_plan:
+    channel_plan = full_channel_plan
+    completed_transfers = []
+    
+bad_channels = [102, 97, 98, 99, 93]
+if bad_channels:
+    channel_plan = remove_channels_from_plan(channels_graph, channel_plan,
+                                             bad_channels)
 
-# ### Compute tour to visit all electrodes.
+channel_patches.map(lambda x: x.set_facecolor(light_blue))
+on_transfer_complete(caller_name(0), channel_plan=channel_plan,
+                     completed_transfers=completed_transfers)
 
-# +
-tour = dc.compute_tour(chip_info_mm,
-                       start_id=chip_info_mm['electrodes'][0]['channels'][0])
+test_complete = threading.Event()
 
-move_messages = []
+def execute_test_(*args, **kwargs):
+    return execute_test(test_complete, *args, **kwargs)
 
-def on_move_complete(sender, **result):
-    move_messages.append(result)
+task = aioh.cancellable(execute_test_)
+min_duration = .15
+state = proxy.state
+if state.capacitance_update_interval_ms > int(.5 * min_duration * 1e3)\
+        or state.capacitance_update_interval_ms == 0:
+    proxy.update_state(capacitance_update_interval_ms=int(.5 * min_duration *
+                                                          1e3))
 
-monitor_task.signals.signal('move-complete').connect(on_move_complete,
-                                                     weak=False)
-# -
+thread = threading.Thread(target=task,
+                          args=(signals, channel_plan, completed_transfers,
+                                ft.partial(qc.ui.plan.transfer_liquid, aproxy,
+                                           min_duration=min_duration)),
+                          kwargs={'n': 4})
 
-# ### Execute tour
-#
-#  - start/finish at `start_channel`
-#  - exclude channels listed in `exclude`
-
-# +
-start_channel = 82
-exclude = [113]
-
-channels_tour = electrode_channels[tour]
-channels_tour = pd.Series(np.roll(channels_tour,
-                                  -channels_tour.tolist()
-                                  .index(start_channel)))
-
-task = aioh.cancellable(execute_tour)
-thread = threading.Thread(target=task, args=(channels_tour, ),
-                          kwargs={'exclude': exclude})
 thread.daemon = True
+
+
+def pause(*args):
+    task.cancel()
+    
+def reset(*args):
+    pause()
+    channel_patches.map(lambda x: x.set_facecolor(light_blue))
+    for c in list(figure._ax.collections):
+        c.remove()
+    figure._ax.figure.canvas.draw()
+    test_complete.clear()
+    if hasattr(test_complete, 'result'):
+        del test_complete.result
+
+def save_results(output_dir, *args):
+    output_dir = ph.path(output_dir)
+    chip_uuid = d.fields['Chip UUID:'].text()
+    result = test_complete.result
+    summary_dict = qc.ui.render\
+        .get_summary_dict(proxy, chip_info, sorted(set(full_channel_plan)),
+                          result[-1]['channel_plan'],
+                          list(it.chain(*(r['completed_transfers']
+                                          for r in result))),
+                          chip_uuid=chip_uuid)
+    output_path = output_dir.joinpath('Chip test report - %s.html' %
+                                      summary_dict['chip_uuid'])
+    print('save to: `%s`' % output_path)
+    qc.ui.render.render_summary(output_path, **summary_dict)
+    
+button_pause = ipw.Button(description='Pause test')
+button_pause.on_click(pause)
+button_reset = ipw.Button(description='Reset')
+button_reset.on_click(reset)
+button_save = ipw.Button(description='Save test report')
+button_save.on_click(ft.partial(save_results,
+                                ph.path('~/Dropbox (Sci-Bots)/chip-qc')
+                                .expand())) 
+
+display(ipw.HBox([button_pause, button_reset, button_save]))
+
 thread.start()
 # -
+
+original_result = test_complete.result.copy()
+
+
+
+test_complete.result['channel_plan'] = [26, 20, 21, 22, 17, 12, 14, 5, 4, 10, 9, 10, 4, 5, 0, 1, 118, 119, 114, 115, 109, 110, 109, 115, 114, 105, 107, 102, 97, 95, 91, 87, 81, 78, 75, 73, 66, 65, 54, 48, 45, 42, 40, 33, 29, 25, 16, 18]
+
+test_complete.result['channel_plan']
+
+# +
+# full_channel_plan_ = full_channel_plan
+# -
+
+# channels_graph_backup = channels_graph.copy()
+# channels_graph.remove_node(86)
+channels_graph = channels_graph_backup.copy()
+
+channels_graph_ = channels_graph.copy()
+channels_graph_.remove_node(86)
+list(qc.ui.plan.create_channel_plan(channels_graph, ['channel_plan']))
+
+reload(dropbot_chip_qc.ui.plan)
+# original_result = test_complete.result
+completed_plan = [t['channels'][0] for t in original_result['completed_transfers']]
+channel_plan = qc.ui.plan.reroute_plan(waypoints, channels_graph,
+                                       original_result['channel_plan'],
+                                       completed_plan)
+test_complete.result['channel_plan'] = channel_plan
+
+channel_plan
+
+# temp = test_complete.result['completed_transfers']
+test_complete.result['completed_transfers'] = (original_result['completed_transfers'][:-1] + temp)
 
 # ## Clean up
 
 # +
-s = monitor_task.signals.signal('exit-request')
-display(s.send('main'))
+import time
+
+s = signals.signal('exit-request')
+display(s.send(caller_name(0)))
 
 # Wait for video processing thread to stop.
 while thread.is_alive():
     time.sleep(.1)
+time.sleep(.1)
+
 # Clear exit request receivers.
 [s.disconnect(r) for r in s.receivers.values()]
 
 viewer._invoker.invoke(viewer.setPhoto)
-# -
-
-# -------------------------------------------
-#
-# # Misc
-
-# +
-# Load font
-
-# db = QtGui.QFontDatabase()
-# db.addApplicationFont(r'C:/Users/chris/Downloads/Orbitron-Regular.ttf')
-# db.addApplicationFont(r'C:/Users/chris/Downloads/FontAwesome.ttf')
-
-# +
-# window.btnLoad.setAttribute(QtCore.Qt.WA_StyleSheet)
-# window.btnLoad.setFont('Lato')
-# window.btnLoad.setToolTip('Hello, world!')
-# window.btnLoad.setToolTipDuration(.5)
-
-#     '''
-#     QWidget {
-#         font-family: bold;
-#         font-family: 'FontAwesome';
-#     }''')
-# style = window.btnLoad.style()
