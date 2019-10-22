@@ -178,7 +178,7 @@ def summarize_results(**kwargs):
 ## Results
 
 {% if shorts_detected %}
- - **Shorted channels:** `{{ sorted(set(shorts_detected)) }}`
+ - **Shorted channels:** `{{ shorts_detected | unique | sort }}`
 {%- endif %}
  - **Failed electrodes:** `{{ fail_electrodes }}`
  - **Skipped electrodes:** `{{ skip_electrodes }}`

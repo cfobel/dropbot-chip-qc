@@ -48,10 +48,21 @@ def unique(seq):
             yield b
 
 
-def create_channel_plan(channels_graph, waypoints):
+def create_channel_plan(channels_graph, waypoints, loop=True):
+    '''
+    Parameters
+    ----------
+    channels_graph : networkx.Graph
+    waypoints : list
+    loop : bool, optional
+
+    .. versionchanged:: X.X.X
+        Add ``loop`` keyword parameter.
+    '''
     channel_plan = list(it.chain(*(nx.shortest_path(channels_graph, a, b)
                                    for a, b in window(waypoints, 2))))
-    channel_plan += nx.shortest_path(channels_graph, waypoints[-1], waypoints[0])
+    if loop:
+        channel_plan += nx.shortest_path(channels_graph, waypoints[-1], waypoints[0])
     return unique(channel_plan)
 
 
@@ -128,24 +139,24 @@ def transfer_windows(signals, channel_plan, completed_transfers,
     signals.signal('transfer-complete').connect(on_transfer_complete)
 
     channel_plan_i = list(channel_plan)
-    completed_transfers_i = []
 
     while len(channel_plan_i) > 1:
         try:
-            channel_plan_i, completed_transfers_i = yield asyncio\
+            channel_plan_i, completed_transfers = yield asyncio\
                 .From(_next_transfer(channel_plan=channel_plan_i,
-                                     completed_transfers=completed_transfers_i,
+                                     completed_transfers=completed_transfers,
                                      co_transfer=co_transfer, n=n))
-        except Exception as e:
-            raise TransferFailed(channel_plan_i, completed_transfers_i, e)
+        except Exception as exception:
+            raise TransferFailed(channel_plan_i, completed_transfers,
+                                 exception)
         else:
             signals.signal('transfer-complete')\
                 .send(caller_name(0),
                       channel_plan=channel_plan_i,
-                      completed_transfers=completed_transfers_i)
+                      completed_transfers=completed_transfers)
     channel_plan_i = []
     result = dict(channel_plan=channel_plan_i,
-                  completed_transfers=completed_transfers_i)
+                  completed_transfers=completed_transfers)
     signals.signal('test-complete').send(caller_name(0), **result)
     raise asyncio.Return(result)
 

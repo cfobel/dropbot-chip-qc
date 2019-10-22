@@ -326,9 +326,6 @@ d.fields['Voltage:'].setValue(voltage)
 #
 
 # +
-# signals.signal('transfer-complete').disconnect(on_transfer_complete)
-
-# +
 patches = plot_result['patches']
 channel_patches = pd.Series(patches.values(),
                             index=electrode_channels[patches.keys()])
@@ -344,6 +341,11 @@ df_channel_centers = df_electrode_centers.loc[s_electrode_channels.index]
 df_channel_centers.index = s_electrode_channels.values
 df_channel_centers.sort_index(inplace=True)
 df_channel_centers.index.name = 'channel'
+# -
+
+import dropbot_chip_qc.ui.execute
+reload(dropbot_chip_qc.ui.plan)
+reload(dropbot_chip_qc.ui.execute)
 
 
 # +
@@ -362,28 +364,9 @@ def on_transfer_complete(sender, **message):
     figure._ax.figure.canvas.draw()
 
 signals.signal('transfer-complete').connect(on_transfer_complete, weak=False)
-
-
 # -
 
 # # Execute test on channel plan through waypoints
-
-# +
-def remove_channels_from_plan(channels_graph, channel_plan, bad_channels):
-    bad_channels = set(bad_channels)
-    plan_with_channel_removed = [c for c in channel_plan
-                                 if c not in bad_channels]
-    channels_graph_ = channels_graph.copy()
-    channels_graph_.remove_nodes_from(bad_channels)
-    return list(qc.ui.plan.create_channel_plan(channels_graph_,
-                                               plan_with_channel_removed))
-
-
-revised_channel_plan = remove_channels_from_plan(channels_graph,
-                                                 test_complete
-                                                 .result['channel_plan'],
-                                                 {86})
-test_complete.result['channel_plan'] = revised_channel_plan
 
 # +
 import path_helpers as ph
@@ -392,148 +375,33 @@ import itertools as it
 
 import ipywidgets as ipw
 
+import dropbot_chip_qc.ui.execute
+import dropbot_chip_qc.ui.notebook
 import dropbot_chip_qc.ui.render
-
-
-@asyncio.coroutine
-def execute_test(test_complete_event, *args, **kwargs):
-    try:
-        result = yield asyncio\
-            .From(qc.ui.plan.transfer_windows(*args, **kwargs))
-    except qc.ui.plan.TransferFailed as e:
-        # Save intermediate result.
-        result = dict(channel_plan=e.channel_plan,
-                      completed_transfers=e.completed_transfers)
-    if not hasattr(test_complete_event, 'result'):
-        test_complete_event.result = []
-    test_complete_event.result.append(result)
-    test_complete_event.set()
-    button_pause.disabled = True
-    yield asyncio.From(aproxy.set_state_of_channels(pd.Series(), append=False))
-    raise asyncio.Return(result)
-
-
-# waypoints = [110, 113]
-# waypoints = [110, 113, 103]
-waypoints = map(int, chip_info['__metadata__']['test-routes'][0]['waypoints'])
-full_channel_plan = list(qc.ui.plan.create_channel_plan(channels_graph,
-                                                        waypoints))
-
-try:
-    channel_plan = test_complete.result[-1]['channel_plan']
-    completed_transfers = test_complete.result[-1]['completed_transfers']
-except:
-    channel_plan = None
-
-if not channel_plan:
-    channel_plan = full_channel_plan
-    completed_transfers = []
-    
-bad_channels = [102, 97, 98, 99, 93]
-if bad_channels:
-    channel_plan = remove_channels_from_plan(channels_graph, channel_plan,
-                                             bad_channels)
-
-channel_patches.map(lambda x: x.set_facecolor(light_blue))
-on_transfer_complete(caller_name(0), channel_plan=channel_plan,
-                     completed_transfers=completed_transfers)
-
-test_complete = threading.Event()
-
-def execute_test_(*args, **kwargs):
-    return execute_test(test_complete, *args, **kwargs)
-
-task = aioh.cancellable(execute_test_)
-min_duration = .15
-state = proxy.state
-if state.capacitance_update_interval_ms > int(.5 * min_duration * 1e3)\
-        or state.capacitance_update_interval_ms == 0:
-    proxy.update_state(capacitance_update_interval_ms=int(.5 * min_duration *
-                                                          1e3))
-
-thread = threading.Thread(target=task,
-                          args=(signals, channel_plan, completed_transfers,
-                                ft.partial(qc.ui.plan.transfer_liquid, aproxy,
-                                           min_duration=min_duration)),
-                          kwargs={'n': 4})
-
-thread.daemon = True
-
-
-def pause(*args):
-    task.cancel()
-    
-def reset(*args):
-    pause()
-    channel_patches.map(lambda x: x.set_facecolor(light_blue))
-    for c in list(figure._ax.collections):
-        c.remove()
-    figure._ax.figure.canvas.draw()
-    test_complete.clear()
-    if hasattr(test_complete, 'result'):
-        del test_complete.result
-
-def save_results(output_dir, *args):
-    output_dir = ph.path(output_dir)
-    chip_uuid = d.fields['Chip UUID:'].text()
-    result = test_complete.result
-    summary_dict = qc.ui.render\
-        .get_summary_dict(proxy, chip_info, sorted(set(full_channel_plan)),
-                          result[-1]['channel_plan'],
-                          list(it.chain(*(r['completed_transfers']
-                                          for r in result))),
-                          chip_uuid=chip_uuid)
-    output_path = output_dir.joinpath('Chip test report - %s.html' %
-                                      summary_dict['chip_uuid'])
-    print('save to: `%s`' % output_path)
-    qc.ui.render.render_summary(output_path, **summary_dict)
-    
-button_pause = ipw.Button(description='Pause test')
-button_pause.on_click(pause)
-button_reset = ipw.Button(description='Reset')
-button_reset.on_click(reset)
-button_save = ipw.Button(description='Save test report')
-button_save.on_click(ft.partial(save_results,
-                                ph.path('~/Dropbox (Sci-Bots)/chip-qc')
-                                .expand())) 
-
-display(ipw.HBox([button_pause, button_reset, button_save]))
-
-thread.start()
-# -
-
-original_result = test_complete.result.copy()
-
-
-
-test_complete.result['channel_plan'] = [26, 20, 21, 22, 17, 12, 14, 5, 4, 10, 9, 10, 4, 5, 0, 1, 118, 119, 114, 115, 109, 110, 109, 115, 114, 105, 107, 102, 97, 95, 91, 87, 81, 78, 75, 73, 66, 65, 54, 48, 45, 42, 40, 33, 29, 25, 16, 18]
-
-test_complete.result['channel_plan']
+reload(qc.ui.execute)
+reload(qc.ui.notebook)
+reload(qc.ui.plan)
 
 # +
-# full_channel_plan_ = full_channel_plan
+output_directory = ph.path('~/Dropbox (Sci-Bots)/chip-qc').expand()
+
+# waypoints = map(int, chip_info['__metadata__']['test-routes'][0]['waypoints'])
+waypoints = [110, 113, 18]
+full_channel_plan = list(qc.ui.plan.create_channel_plan(channels_graph,
+                                                        waypoints, loop=False))
+executor = qc.ui.execute.Executor(channels_graph, full_channel_plan)
+try:
+    # Detach existing callbacks (if applicable).
+    del control.pause_on_complete
+    del control.start_on_complete
+except NameError:
+    pass
+control = qc.ui.notebook.executor_control(chip_info, aproxy, signals, figure,
+                                          channel_patches, executor,
+                                          output_directory,
+                                          d.fields['Chip UUID:'].text)
+display(control)
 # -
-
-# channels_graph_backup = channels_graph.copy()
-# channels_graph.remove_node(86)
-channels_graph = channels_graph_backup.copy()
-
-channels_graph_ = channels_graph.copy()
-channels_graph_.remove_node(86)
-list(qc.ui.plan.create_channel_plan(channels_graph, ['channel_plan']))
-
-reload(dropbot_chip_qc.ui.plan)
-# original_result = test_complete.result
-completed_plan = [t['channels'][0] for t in original_result['completed_transfers']]
-channel_plan = qc.ui.plan.reroute_plan(waypoints, channels_graph,
-                                       original_result['channel_plan'],
-                                       completed_plan)
-test_complete.result['channel_plan'] = channel_plan
-
-channel_plan
-
-# temp = test_complete.result['completed_transfers']
-test_complete.result['completed_transfers'] = (original_result['completed_transfers'][:-1] + temp)
 
 # ## Clean up
 
