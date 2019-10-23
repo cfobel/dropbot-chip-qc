@@ -28,7 +28,14 @@ from ..connect import connect
 from ..render import render_summary
 from ..video import chip_video_process, show_chip
 from ..single_drop import _run_test as _single_run_test
-from ..multi_sensing import _run_test as _multi_run_test
+try:
+    from ..multi_sensing import _run_test as _multi_run_test
+    MULTI_SENSING_ENABLED = True
+except ImportError as exception:
+    if 'No module named dispense' not in str(exception):
+        raise
+    MULTI_SENSING_ENABLED = False
+
 from .video import VIDEO_PARSER
 from .._version import get_versions
 __version__ = get_versions()['version']
@@ -222,7 +229,7 @@ def run_test(way_points, start_electrode, output_dir, video_dir=None,
                 # Log results of shorts detection tests.
                 proxy.signals.signal('shorts-detected').connect(log_event)
 
-                if multi_sensing:
+                if MULTI_SENSING_ENABLED and multi_sensing:
                     # Log multi-sensing capacitance events (in memory).
                     proxy.signals.signal('sensitive-capacitances')\
                         .connect(log_event)
