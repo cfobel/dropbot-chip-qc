@@ -47,6 +47,7 @@ requirements:
     - pyzbar
     - qrcode
     - si-prefix
+    - svg-model
     - trollius
 
 test:
