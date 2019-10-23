@@ -20,7 +20,6 @@ import dmf_chip as dc
 import dropbot as db
 import dropbot as db
 import dropbot.move
-import dropbot.threshold_async
 import dropbot_chip_qc as dq
 import dropbot_chip_qc as qc
 import dropbot_chip_qc.connect
