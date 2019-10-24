@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 import threading
 
 from dropbot_monitor.mqtt_proxy import MqttProxy

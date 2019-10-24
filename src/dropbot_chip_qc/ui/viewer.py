@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 from PySide2 import QtGui, QtCore, QtWidgets
 import cv2
 

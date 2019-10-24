@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 import functools as ft
 
 from logging_helpers import _L

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 from __future__ import print_function, division
 from collections import OrderedDict
 import functools as ft

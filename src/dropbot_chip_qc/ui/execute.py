@@ -1,4 +1,7 @@
 # -*- encoding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 import functools as ft
 import itertools as it
 import threading

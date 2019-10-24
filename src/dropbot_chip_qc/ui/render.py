@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 import copy
 import pkgutil
 import re

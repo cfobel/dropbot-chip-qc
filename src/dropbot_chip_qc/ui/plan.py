@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+'''
+.. versionadded:: X.X.X
+'''
 from __future__ import (print_function, absolute_import, division,
                         unicode_literals)
 import collections
@@ -55,9 +58,6 @@ def create_channel_plan(channels_graph, waypoints, loop=True):
     channels_graph : networkx.Graph
     waypoints : list
     loop : bool, optional
-
-    .. versionchanged:: X.X.X
-        Add ``loop`` keyword parameter.
     '''
     channel_plan = list(it.chain(*(nx.shortest_path(channels_graph, a, b)
                                    for a, b in window(waypoints, 2))))
