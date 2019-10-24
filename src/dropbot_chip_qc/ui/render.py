@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-.. versionadded:: X.X.X
+.. versionadded:: v0.12.0
 '''
 import copy
 import pkgutil

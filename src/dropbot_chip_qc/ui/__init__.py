@@ -1,4 +1,4 @@
 # -*- encoding: utf-8 -*-
 '''
-.. versionadded:: X.X.X
+.. versionadded:: v0.12.0
 '''

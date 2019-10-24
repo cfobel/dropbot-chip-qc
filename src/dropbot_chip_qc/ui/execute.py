@@ -1,6 +1,6 @@
 # -*- encoding: utf-8 -*-
 '''
-.. versionadded:: X.X.X
+.. versionadded:: v0.12.0
 '''
 import functools as ft
 import itertools as it

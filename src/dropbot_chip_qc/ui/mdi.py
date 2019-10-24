@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-.. versionadded:: X.X.X
+.. versionadded:: v0.12.0
 '''
 from __future__ import print_function, division
 from collections import OrderedDict
