@@ -18,7 +18,6 @@ import asyncio_helpers as aioh
 import blinker
 import dmf_chip as dc
 import dropbot as db
-import dropbot as db
 import dropbot.move
 import dropbot_chip_qc as dq
 import dropbot_chip_qc as qc
@@ -26,7 +25,6 @@ import dropbot_chip_qc.connect
 import dropbot_chip_qc.video
 import dropbot_monitor as dbm
 import dropbot_monitor.mqtt_proxy
-from dropbot_monitor.mqtt_proxy import MqttProxy
 import matplotlib as mpl
 import networkx as nx
 import numpy as np
@@ -34,6 +32,9 @@ import pandas as pd
 import path_helpers as ph
 import si_prefix as si
 import trollius as asyncio
+
+from .mqtt_proxy import DropBotMqttProxy
+
 
 # For colors, see: https://gist.github.com/cfobel/fd939073cf13a309d7a9
 light_blue = '#88bde6'
@@ -141,18 +142,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def resizeEvent(self, event):
         self.tileVertically()
         return super(MainWindow, self).resizeEvent(event)
-
-
-class DropBotMqttProxy(MqttProxy):
-    def __init__(self, *args, **kwargs):
-        super(DropBotMqttProxy, self).__init__(*args, **kwargs)
-        super(DropBotMqttProxy, self).__setattr__('transaction_lock',
-                                                  threading.RLock())
-
-    @classmethod
-    def from_uri(cls, *args, **kwargs):
-        return super(DropBotMqttProxy, cls).from_uri(db.proxy.Proxy, *args,
-                                                     **kwargs)
 
 
 def launch(aproxy, chip_file, signals=None):

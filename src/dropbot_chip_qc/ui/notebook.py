@@ -9,7 +9,7 @@ import pandas as pd
 import path_helpers as ph
 import si_prefix as si
 
-from .mdi import DropBotMqttProxy
+from .mqtt_proxy import DropBotMqttProxy
 from .render import get_summary_dict, render_summary
 
 
