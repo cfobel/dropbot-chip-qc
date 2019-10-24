@@ -58,3 +58,7 @@ controller = qc.ui.execute.ExecutorController(aproxy, ui, executor)
 # Launch IPython widgets QC test control widget.
 control = qc.ui.notebook.executor_control(controller, output_directory)
 display(control)
+# -
+
+# Launch Qt QC test control widget in MDI window.
+qc.ui.mdi.executor_control(controller, output_directory)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function, division
+from collections import OrderedDict
 import functools as ft
 from imp import reload
 import logging
@@ -359,3 +360,90 @@ def launch(aproxy, chip_file, signals=None):
             'dropbot_settings': dropbot_settings,
             'channel_electrodes': channel_electrodes,
             'electrode_channels': electrode_channels}
+
+
+def executor_control(controller, output_directory):
+    # TODO Disconnect `test-complete`/`test-interrupt` callbacks.
+    ui = controller.ui
+    tab = QtWidgets.QTabWidget()
+    buttons = OrderedDict((name, QtWidgets.QPushButton(name))
+                          for name in ('Start test', 'Pause test', 'Reset',
+                                       'Save test report'))
+    buttons['Pause test'].setDisabled(True)
+
+    def start(*args):
+        buttons['Start test'].setDisabled(True)
+        buttons['Start test'].setText('Resume test')
+        buttons['Pause test'].setDisabled(False)
+        bad_channels = sorted([int(i.text())
+                               for i in channels_list.selectedItems()])
+        controller.start(bad_channels)
+
+    buttons['Start test'].clicked.connect(start)
+
+    def reset(*args):
+        buttons['Start test'].setDisabled(False)
+        buttons['Start test'].setText('Start test')
+        buttons['Pause test'].setDisabled(True)
+        channels_list.clearSelection()
+        controller.reset()
+
+    buttons['Reset'].clicked.connect(reset)
+    buttons['Pause test'].clicked.connect(lambda *args: controller.pause())
+
+    def save_results(*args):
+        chip_uuid = controller.ui['dropbot_settings'].fields['Chip UUID:'].text()
+        controller.save_results(output_directory, chip_uuid)
+
+    buttons['Save test report'].clicked.connect(save_results)
+
+    signals = controller.ui['signals']
+
+    def start_on_complete(*args, **kwargs):
+        buttons['Start test'].setDisabled(False)
+
+    def pause_on_complete(*args, **kwargs):
+        buttons['Pause test'].setDisabled(True)
+
+    signals.signal('test-complete').connect(start_on_complete)
+    signals.signal('test-interrupt').connect(start_on_complete)
+    signals.signal('test-complete').connect(pause_on_complete)
+    signals.signal('test-interrupt').connect(pause_on_complete)
+
+    actions = QtWidgets.QWidget()
+    actions_layout = QtWidgets.QHBoxLayout()
+    for button in buttons.values():
+        actions_layout.addWidget(button)
+    actions.setLayout(actions_layout)
+
+    channels_list = QtWidgets.QListWidget()
+    channels_list.addItems(map(str, sorted(ui['channel_patches'].index)))
+    channels_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+
+    def calibrate(*args):
+        target_force_ = target_force.value() * 1e-6
+        sheet_capacitance, voltage = \
+            controller.calibrate_sheet_capacitance(target_force_)
+        dropbot_settings = ui['dropbot_settings']
+        # Set voltage in DropBot settings UI
+        dropbot_settings.fields['Voltage:'].setValue(voltage)
+
+    calibrate_widget = QtWidgets.QWidget()
+    calibrate_layout = QtWidgets.QHBoxLayout()
+    button_calibrate = QtWidgets.QPushButton('Ca&librate')
+    button_calibrate.clicked.connect(calibrate)
+    calibrate_layout.addWidget(button_calibrate)
+    target_force = QtWidgets.QDoubleSpinBox()
+    target_force.setSuffix(' μN')
+    target_force.setValue(30)
+    target_force.setMinimum(10)
+    target_force.setMaximum(50)
+    calibrate_layout.addWidget(target_force)
+    calibrate_widget.setLayout(calibrate_layout)
+
+    tab.addTab(actions, '&Exector actions')
+    tab.addTab(channels_list, '&Bad channels')
+    tab.addTab(calibrate_widget, 'Sheet &capacitance')
+
+    ui['window'].mdiArea.addSubWindow(tab)
+    tab.show()
