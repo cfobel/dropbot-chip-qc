@@ -39,8 +39,8 @@ aproxy = DropBotMqttProxy.from_uri('dropbot', 'localhost', async_=True)
 ui = launch(aproxy, chip_file)
 
 output_directory = ph.path('~/Dropbox (Sci-Bots)/chip-qc').expand()
-# -
 
+# +
 waypoints = map(int,
                 ui['chip_info']['__metadata__']['test-routes'][0]['waypoints'])
 full_channel_plan = list(qc.ui.plan.create_channel_plan(ui['channels_graph'],
@@ -52,6 +52,9 @@ try:
     del control.start_on_complete
 except NameError:
     pass
-control = qc.ui.notebook.executor_control(aproxy, ui,
-                                          executor, output_directory)
+
+controller = qc.ui.execute.ExecutorController(aproxy, ui, executor)
+
+# Launch IPython widgets QC test control widget.
+control = qc.ui.notebook.executor_control(controller, output_directory)
 display(control)
